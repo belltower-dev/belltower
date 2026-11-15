@@ -250,4 +250,6 @@ with a token. Phase 3.
 ## Moved into the spec and plan
 
 - 5. Timing breakdown: results, the `timingBreakdown` capability and the
-  HttpClient port. Showing it in incident details comes with `decide`.
+  HttpClient port. Incidents keep each region's first failure, timing
+  included; showing it to people comes with the status page and alert
+  emails.

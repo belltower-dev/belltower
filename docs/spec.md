@@ -249,11 +249,21 @@ instructions: [certificates.md](certificates.md).
 - **Recovered when** the check passes in at least two regions for three
   consecutive minutes.
 - All counts are configuration; these are the defaults.
+- **Consecutive minutes** means each of those minutes, on its own, has
+  enough regions failing (or passing); they needn't be the same regions.
+  When fewer regions run a check than a count asks for, every region that
+  runs it must agree.
+- **Silence confirms nothing.** A minute with no result for a check breaks
+  every streak for it.
+- **`decide()` judges the last complete minute.** Regions run at the top of
+  the minute, so the current minute's results may not all be written; they
+  count on the next run.
 
 ## Incidents and alerts
 
 - **Opened automatically** when a check is confirmed down, starting at the
-  first failing minute.
+  first failing minute. Its id is the check id and that minute in UTC
+  (`home-202611151001`).
 - **Each incident keeps** the check, component, regions, start and end, and
   from the first failure in each region: status code, timing, response
   headers and the first 2 KB of the body.
@@ -263,7 +273,15 @@ instructions: [certificates.md](certificates.md).
   - The open alert repeats every 30 minutes until acknowledged, by a signed
     link in the alert.
 - **Resolved automatically** on recovery; the recovery alert gives the
-  duration.
+  duration, which ends at the first minute of the passing streak.
+- **Alerts go out at least once.** `decide()` writes the incident, sends
+  the alert, then records that it did. If it stops in between, the next run
+  sends the alert again rather than never. A notifier that fails doesn't
+  stop the others; the failure is in `decide()`'s report.
+- **Alert level:** `critical` for critical checks and checks in critical
+  components, `alert` otherwise. Each notifier sends the levels it's
+  configured for, so SMS notifiers (default `critical` only) text only for
+  those.
 - **Public incident notes** are Markdown files in the deployment's
   repository, written by hand: title, component, start, end, updates with
   times. A detected incident shows as "Detected outage" until a note exists.
@@ -371,6 +389,7 @@ heartbeats/{id}.json                              last success, last failure
 email/{run-id}                                    round-trip messages (written by the inbox)
 certificates/{check-id}.json                      last inspection and the previous fingerprint
 incidents/{id}.json                               detected incidents
+state/decide.json                                 which checks have an open incident (decide()'s own state)
 public/status.json                                current state, with the time it was written
 public/history.json                               90 days of daily figures per component
 public/reports/{yyyy}-{mm}.json|csv               monthly availability
@@ -381,6 +400,11 @@ Raw results expire after 90 days by default; everything else is kept.
 Each file carries a `format` field naming its kind and version, such as
 `belltower.results/1`, so a later version can read what an earlier one
 wrote.
+
+`public/status.json` is written from an allowlist: the time it was written,
+the overall state, each component's name and state, and the open incidents
+(id, component, start). Only public checks count toward it. Nothing else
+from the config, the results or the incidents is copied into it.
 
 ## Releasing it
 

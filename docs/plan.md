@@ -32,14 +32,17 @@ Update this section in the same commit as the work it describes.
 - Store contract suite (`packages/core/test/contracts/store.ts`, exported as
   `@belltower/core/contracts`), passed by the in-memory Store in the core
   and the local-folder Store in `packages/adapter-container`.
+- `decide` for HTTP checks (`packages/core/src/decide.ts`): the
+  confirmation, degraded and recovery rules as a pure `judge`; incidents
+  with first failures per region; alerts on open and recovery;
+  `public/status.json`. Tested with recorded results.
 
 **Next, in order:**
 
-1. `decide` and its rules, pure and tested with recorded results.
-2. `handle` for heartbeats.
-3. The rest of `adapter-container`, then `examples/local`: the first thing
+1. `handle` for heartbeats, and judging heartbeats in `decide`.
+2. The rest of `adapter-container`, then `examples/local`: the first thing
    that runs end to end.
-4. `adapter-aws` and `examples/aws-sam`.
+3. `adapter-aws` and `examples/aws-sam`.
 
 Phase 1's done-when checks are below. Things built but not yet tried for
 real go in [untested.md](untested.md).
