@@ -229,6 +229,118 @@ with a token. Phase 3.
 - An agent can't turn off a check or delete history through any write tool;
   those need a config change.
 
+### 11. A status page people already know how to read
+
+Status pages share conventions that visitors recognize. Belltower follows
+them, and meets WCAG 2.1 AA while doing it.
+
+**Layout and states**
+
+- An overall status line with "Last updated" and its time.
+- Components in groups (by region, by function, or both) that expand and
+  collapse with a button that says what it does. Each component can have a
+  one-line description and a link to the thing itself ("Web app" to the app).
+- Five component states, always in words: Operational, Degraded
+  performance, Partial outage (some regions or some of the feature), Major
+  outage, Maintenance. A legend lists them.
+- 90-day bars per component with uptime percentages, and a response time
+  chart per component, each with a table alternative.
+- Separate pages for Status, Maintenance and History, so the main page stays
+  short.
+- System, light and dark themes, following the viewer's setting by default.
+- Times in the viewer's time zone, with UTC shown alongside.
+- A "Report a problem" link, set in config.
+
+**Incidents**
+
+- Every incident has its own page and a permanent link, for sharing during an
+  outage.
+- Updates carry a stage and a time: Investigating, Identified, Monitoring,
+  Resolved, plus plain Update. The stage is a word, not only an icon.
+- Each incident shows its duration, the components it affected and its
+  impact, including "No impact" when components were named for context.
+- History lists every day, with "No incidents reported" on quiet days. An
+  empty day is evidence too.
+
+**Subscribing**, in this order:
+
+1. Atom and RSS feeds of incidents and maintenance (phase 2).
+2. Email, confirmed with a one-time code, for incidents created, updated and
+   resolved; with a choice of components (phase 3).
+3. Webhooks, for incidents and component state changes, with an email
+   address that hears if the webhook keeps failing (phase 3).
+4. Slack (phase 4). SMS only if deployments ask.
+
+Every subscription has a one-click unsubscribe, and the subscribe form is
+protected against bots without a visual puzzle (puzzles fail accessibility).
+
+**Machine-readable status**
+
+- `summary.json` follows the shape widely used by status page widgets and
+  aggregators (page, overall status indicator, components, open incidents,
+  scheduled maintenance), so existing tools read a Belltower page without
+  changes. `status.json`, `history.json` and the feeds sit alongside
+  (requirement 7).
+
+**Later**
+
+- A hub page listing several products' status pages, for deployments with
+  more than one product.
+- Private pages, signed in by SSO or an emailed code, for internal services.
+
+### 12. Branding
+
+Each deployment's page looks like its own product, in ways that can't break
+accessibility.
+
+- **From config:**
+  - name and link
+  - logo, plus a separate logo for dark mode, each with required alt text
+  - favicon
+  - accent color
+  - font (a system font stack by default; a web font only from the
+    deployment's own host)
+  - default theme
+  - footer text and links
+- **Contrast is checked at build:** the accent color is tested against both
+  themes' backgrounds and text, and a failing pair stops the build with the
+  pair and the ratio.
+- **No custom CSS or scripts.** They're how branding breaks accessibility,
+  and what the build can't check.
+- **Domain:** the page is served from the deployment's own domain. The docs
+  show the DNS record for each static host.
+- **Email** (subscriptions and alerts) comes from a sender name and address
+  set in config, on the deployment's own domain.
+- **Footer:** "Powered by Belltower", on by default, can be turned off in
+  config.
+
+### 13. Alerting that a small team can run
+
+Enough alerting that nobody needs a second tool to be woken up, without
+becoming an on-call scheduling product.
+
+- **One incident per problem.** Repeated failures of a check fold into its
+  open incident. Related checks can share an incident key, so a database
+  outage that breaks five checks is one incident with five checks.
+- **Priorities, P1 to P5,** set per check and component, replacing the
+  two-level `severity`. Priority picks the channels: for example, P1 texts,
+  P3 emails, and P5 only records.
+- **Acknowledge and resolve from the alert itself:** signed links in email
+  and SMS, and buttons in Slack. The acknowledge page meets WCAG 2.1 AA.
+- **Simple escalation:** an alert that isn't acknowledged within a set time
+  goes to the next contact in a list, then the next. No rotations or
+  calendars.
+- **Quiet hours per contact:** lower priorities wait until morning; P1 and
+  P2 never wait.
+- **An inbound alert API.** Other tools (a CI job, an error tracker, a
+  queue's dead-letter check) open, update and resolve incidents by HTTP with
+  a token. Those incidents follow the same rules and show on the page under
+  the component they name, so the status page is the one place for any
+  outage.
+- **Out of scope:** on-call rotations and calendars, teams, routing rules.
+  Deployments that need them use a dedicated tool, which Belltower notifies
+  by webhook.
+
 ## Where each requirement goes
 
 | Requirement | Phase |
@@ -246,6 +358,14 @@ with a token. Phase 3.
 | 10. `validate`, `try`, `deploy`, `verify`, `heartbeat-snippet`, the config JSON Schema | 2 and 3 |
 | 10. MCP server, incident payloads for agents | 3 |
 | 10. `suggest`, `init`, `llms.txt`, template `AGENTS.md`, README prompt | 4 |
+| 11. Layout, five states, groups, incident pages and stages, daily history, themes, local time, feeds, `summary.json` | 2, with `buildPage()` |
+| 11. Email and webhook subscriptions | 3 |
+| 11. Slack subscriptions | 4 |
+| 11. Hub page, private pages | Later |
+| 12. Branding from config, contrast check, sender address | 2, and email in 3 |
+| 13. Incident keys, priorities | 1 and 2, with `decide` (priorities replace `severity`) |
+| 13. Acknowledge and resolve from alerts, escalation, quiet hours | 3, with the notifiers |
+| 13. Inbound alert API | 3 |
 
 ## Moved into the spec and plan
 
