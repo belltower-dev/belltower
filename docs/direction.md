@@ -249,6 +249,10 @@ with a token. Phase 3.
 
 ## Moved into the spec and plan
 
+- 7. Public status API, in part: JSON Schemas for `status.json`,
+  `history.json` and the monthly report, with the compatibility rule, are
+  in the spec's "Storage". CORS, caching and the embedding docs come with
+  `buildPage()` and hosting.
 - 10. CLI rules (flags only, `--json` with codes, JSON pointers and fixes,
   stable exit codes, `--dry-run`, no secret values): the spec's "The
   command line", built in the container adapter. `validate` is there too.

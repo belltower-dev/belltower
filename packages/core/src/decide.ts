@@ -1,5 +1,6 @@
 import { resultsKey, RESULTS_FORMAT, type CheckResult, type ResultsFile } from "./check.ts"
 import type { Check, Config, HeartbeatCheck, HttpCheck, Thresholds } from "./config.ts"
+import { rollUp } from "./availability.ts"
 import { heartbeatKey, judgeHeartbeat, type HeartbeatRecord } from "./heartbeat.ts"
 import type { Alert, AlertLevel, Clock, HttpTiming, Notifier, Store } from "./ports.ts"
 
@@ -106,7 +107,14 @@ interface DecideState {
   format: typeof DECIDE_STATE_FORMAT
   /** Check id to the id of its open incident. */
   open: Record<string, string>
+  /** When decide() first ran: availability isn't counted before it. */
+  since?: string
+  /** When public/history.json and the reports were last written. */
+  rolledUpAt?: string
 }
+
+/** How often the history and reports are rewritten when nothing has changed. */
+const ROLL_UP_EVERY = 10 * MINUTE
 
 export interface DecideDeps {
   config: Config
@@ -194,6 +202,13 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
       }
       delete state.open[check.id]
     }
+  }
+
+  state.since ??= now.toISOString()
+  const changed = report.opened.length > 0 || report.resolved.length > 0
+  if (changed || !state.rolledUpAt || now.getTime() - Date.parse(state.rolledUpAt) >= ROLL_UP_EVERY) {
+    await rollUp({ config, store, clock, since: new Date(state.since) })
+    state.rolledUpAt = now.toISOString()
   }
 
   await store.put(DECIDE_STATE_KEY, JSON.stringify(state), { contentType: "application/json" })

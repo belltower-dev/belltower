@@ -15,10 +15,12 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./contracts": "./test/contracts/index.ts"
+    "./contracts": "./test/contracts/index.ts",
+    "./schemas/*": "./schemas/*"
   },
   "files": [
     "src",
+    "schemas",
     "test/contracts"
   ]
 }

@@ -1,6 +1,7 @@
 export type * from "./ports.ts"
 export * from "./config.ts"
 export * from "./check.ts"
+export * from "./availability.ts"
 export * from "./decide.ts"
 export * from "./heartbeat.ts"
 export * from "./notifiers.ts"

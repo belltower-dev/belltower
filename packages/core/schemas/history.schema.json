@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "belltower.history/1",
+  "title": "Belltower availability history",
+  "description": "public/history.json: each component's last 90 UTC days and this month to date. Compatible within a major version: fields are only added.",
+  "type": "object",
+  "required": ["format", "writtenAt", "components"],
+  "properties": {
+    "format": { "const": "belltower.history/1" },
+    "writtenAt": { "type": "string", "format": "date-time" },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "target", "month", "days"],
+        "properties": {
+          "name": { "type": "string" },
+          "target": { "type": ["number", "null"], "description": "Monthly availability target in percent, or null when none is set." },
+          "month": {
+            "type": "object",
+            "required": ["month", "availability"],
+            "properties": {
+              "month": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" },
+              "availability": { "type": ["number", "null"], "description": "Percent up so far this month, rounded down to three places." }
+            },
+            "additionalProperties": false
+          },
+          "days": {
+            "type": "array",
+            "minItems": 90,
+            "maxItems": 90,
+            "description": "Oldest first; the last entry is today so far.",
+            "items": {
+              "type": "object",
+              "required": ["date", "uptime", "downMinutes", "maintenanceMinutes", "incidents"],
+              "properties": {
+                "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+                "uptime": { "type": ["number", "null"], "description": "Percent up, rounded down to three places; null before monitoring began." },
+                "downMinutes": { "type": "integer", "minimum": 0 },
+                "maintenanceMinutes": { "type": "integer", "minimum": 0 },
+                "incidents": { "type": "array", "items": { "type": "string" }, "description": "Ids of public incidents that overlap the day." }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

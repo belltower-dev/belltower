@@ -190,7 +190,7 @@ Besides `checks`, a config has:
 
 | Section | Fields | Default |
 | --- | --- | --- |
-| `components` | `name`; `critical` (down alerts for its checks also go by SMS) | `critical: false` |
+| `components` | `name`; `critical` (down alerts for its checks also go by SMS); `target` (monthly availability percentage, such as 99.9); `credits` (tiers such as `[{ "below": 99.9, "percent": 10 }, { "below": 99, "percent": 25 }]`) | `critical: false`, no target, no credits |
 | `notifiers` | `id`; `type` (`email`, `sms`, `webhook`); `to` (email addresses, or phone numbers in international format such as `+15555550100`); `secret` (webhook only: the name of the secret holding the URL); `levels` | `levels`: `warn`, `alert`, `critical`, or only `critical` for SMS |
 | `thresholds` | `confirmRegions`, `confirmMinutes`, `degradedMinutes`, `recoverRegions`, `recoverMinutes`, `repeatAlertMinutes` | 2, 2, 5, 2, 3, 30 (see "Deciding that something is down") |
 
@@ -434,6 +434,22 @@ size) and is encouraged, but 2.1 AA is the requirement.
   the credit tier.
 - **Output:** a monthly report per component (availability, incidents,
   minutes down, time to recover) as JSON and CSV.
+- **Days and months are UTC.** Minutes before monitoring began (the first
+  run of `decide()`) aren't counted, so earlier days show as no data
+  rather than 100%. The current day and month count up to now.
+- **Percentages round down** to three places, so a single down minute
+  never shows as 100%.
+- **The credit** for a month is the largest tier it falls below; a month
+  above every tier owes none. `targetMet` is null without a target.
+- **Time to recover** is the mean, in minutes, from start to end of the
+  incidents that ended in the month.
+- **Written by `decide()`** when an incident opens or resolves, and
+  otherwise every 10 minutes: `public/history.json` (90 days per
+  component and this month against its target) and the reports for this
+  month and the last, so last month's is final once the month ends.
+- **CSV columns:** `component`, `availability_percent`, `target_percent`,
+  `target_met`, `credit_percent`, `minutes_counted`, `minutes_down`,
+  `maintenance_minutes`, `incidents`, `mean_minutes_to_recover`.
 
 ## Storage
 
@@ -454,6 +470,11 @@ Raw results expire after 90 days by default; everything else is kept.
 Each file carries a `format` field naming its kind and version, such as
 `belltower.results/1`, so a later version can read what an earlier one
 wrote.
+
+The public files have JSON Schemas in `packages/core/schemas/`
+(`status.schema.json`, `history.schema.json`, `report.schema.json`),
+published with `@belltower/core`. They change compatibly within a major
+version: fields are only added. A test checks real output against them.
 
 `public/status.json` is written from an allowlist: the time it was written,
 the overall state, each component's name and state, and the open incidents

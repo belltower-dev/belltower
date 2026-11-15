@@ -65,12 +65,18 @@ real AWS deployment of `examples/aws-sam`.
   decide and a heartbeat function URL in the primary region) and a demo
   config. Not yet deployed.
 
+- Phase 2 so far: component targets and credit tiers in the config; the
+  daily roll-up into `public/history.json` and monthly reports as JSON and
+  CSV, written by `decide()`; JSON Schemas for the public files. Tested.
+- esbuild in `examples/aws-sam`; the Lambda bundle is 64 KB.
+
 **Next, in order:**
 
 1. Deploy `examples/aws-sam` to three regions and run phase 1's remaining
    done-when checks.
-2. Phase 2, starting with what has no interface: the daily roll-up into
-   `public/history.json` and the monthly report.
+2. Incident and maintenance notes from Markdown; maintenance suppresses
+   alerts and downtime.
+3. `buildPage()`. Its design is shared for review before it's built.
 
 Phase 1's done-when checks are below.
 

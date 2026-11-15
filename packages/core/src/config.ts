@@ -85,10 +85,22 @@ export interface DomainCheck extends CheckBase {
 
 export type Check = HttpCheck | HeartbeatCheck | EmailCheck | TlsCheck | DomainCheck
 
+/** A service credit owed when monthly availability falls below a threshold. */
+export interface CreditTier {
+  /** Availability percentage the month must fall below, such as 99.9. */
+  below: number
+  /** Credit owed, as a percentage of the month's fee. */
+  percent: number
+}
+
 export interface Component {
   name: string
   /** Down alerts for any check in this component also go by SMS. */
   critical: boolean
+  /** Monthly availability target, as a percentage, such as 99.9. */
+  target?: number
+  /** Credit tiers, highest threshold first. */
+  credits: readonly CreditTier[]
 }
 
 interface NotifierBase {
@@ -267,8 +279,33 @@ export function validateConfig(input: unknown, regions: readonly Region[]): Conf
 function readComponent(f: Fields): Component | null {
   const name = f.string("name", { required: true })
   const critical = f.boolean("critical", false)
+  const target = f.has("target") ? f.percentage("target") : undefined
+  const credits = readCredits(f)
   f.finish()
-  return name === undefined ? null : { name, critical }
+  return name === undefined ? null : { name, critical, credits, ...(target !== undefined ? { target } : {}) }
+}
+
+function readCredits(f: Fields): CreditTier[] {
+  const raw = f.raw("credits")
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) {
+    f.error("credits", "invalid", "must be a list of tiers such as { \"below\": 99.9, \"percent\": 10 }.")
+    return []
+  }
+  const tiers: CreditTier[] = []
+  raw.forEach((item: unknown, i) => {
+    const below = isRecord(item) ? item.below : undefined
+    const percent = isRecord(item) ? item.percent : undefined
+    const ok = (n: unknown): n is number => typeof n === "number" && n > 0 && n <= 100
+    if (!isRecord(item) || !ok(below) || !ok(percent) || Object.keys(item).some((k) => k !== "below" && k !== "percent")) {
+      f.error("credits", "invalid", `must be { "below": <availability percent>, "percent": <credit percent> }, both above 0 and at most 100, got ${show(item)}.`, undefined, i)
+      return
+    }
+    tiers.push({ below, percent })
+  })
+  const thresholds = tiers.map((t) => t.below)
+  if (new Set(thresholds).size !== thresholds.length) f.error("credits", "duplicate", "two tiers have the same below value.", "Give each tier its own threshold.")
+  return tiers.sort((a, b) => b.below - a.below)
 }
 
 function readNotifier(f: Fields): NotifierConfig | null {
@@ -565,6 +602,14 @@ class Fields {
     const range = opts.max === undefined ? `${opts.min} or more` : `from ${opts.min} to ${opts.max}`
     this.error(key, "invalid", `must be a whole number ${range}, got ${show(value)}.`)
     return fallback
+  }
+
+  /** A percentage above 0 and at most 100. */
+  percentage(key: string): number | undefined {
+    const value = this.raw(key)
+    if (typeof value === "number" && value > 0 && value <= 100) return value
+    this.error(key, "invalid", `must be a percentage above 0 and at most 100, such as 99.9, got ${show(value)}.`)
+    return undefined
   }
 
   /** A fraction between 0 and 1, written as a number or as "1/3". */

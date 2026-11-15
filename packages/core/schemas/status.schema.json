@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "belltower.status/1",
+  "title": "Belltower current status",
+  "description": "public/status.json: the current state of each component, written every minute by decide(). Compatible within a major version: fields are only added.",
+  "type": "object",
+  "required": ["format", "writtenAt", "overall", "components", "incidents"],
+  "properties": {
+    "format": { "const": "belltower.status/1" },
+    "writtenAt": { "type": "string", "format": "date-time", "description": "When decide() wrote this file. Older than 10 minutes means the monitor itself has stopped." },
+    "overall": { "$ref": "#/$defs/state", "description": "The worst state of any component." },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "state"],
+        "properties": {
+          "name": { "type": "string" },
+          "state": { "$ref": "#/$defs/state" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "incidents": {
+      "type": "array",
+      "description": "Open incidents on public checks.",
+      "items": {
+        "type": "object",
+        "required": ["id", "component", "startedAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "component": { "type": "string" },
+          "startedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "state": { "enum": ["operational", "degraded", "down"], "description": "Shown in words: Operational, Degraded, Down." }
+  }
+}

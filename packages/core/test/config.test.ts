@@ -39,7 +39,7 @@ describe("validateConfig", () => {
       public: true,
     })
     expect(result.config.thresholds).toEqual(DEFAULT_THRESHOLDS)
-    expect(result.config.components[0]).toEqual({ name: "Website", critical: false })
+    expect(result.config.components[0]).toEqual({ name: "Website", critical: false, credits: [] })
     expect(result.config.notifiers[0]).toEqual({ id: "ops", type: "email", to: ["ops@example.com"], levels: ["warn", "alert", "critical"] })
     expect(result.byRegion).toEqual({ us: ["home"], eu: ["home"] })
   })
@@ -218,6 +218,31 @@ describe("validateConfig", () => {
     const config = base()
     config.notifiers.push({ id: "pager", type: "sms", to: ["555-0100"] } as never)
     expect(errorsFor(config)[0]).toContain("notifiers[1] (pager).to[0]: must be a phone number in international format")
+  })
+
+  it("reads a component's target and credit tiers, highest threshold first", () => {
+    const config = base()
+    config.components[0] = { name: "Website", target: 99.9, credits: [{ below: 99.0, percent: 25 }, { below: 99.9, percent: 10 }] } as { name: string }
+    const result = validateConfig(config, regions)
+    expect(result.ok && result.config.components[0]).toEqual({
+      name: "Website",
+      critical: false,
+      target: 99.9,
+      credits: [
+        { below: 99.9, percent: 10 },
+        { below: 99.0, percent: 25 },
+      ],
+    })
+  })
+
+  it("refuses a target or credit tier outside 0 to 100", () => {
+    const config = base()
+    config.components[0] = { name: "Website", target: 120, credits: [{ below: 99.9 }] } as { name: string }
+    const result = validateConfig(config, regions)
+    expect(!result.ok && result.issues.map((i) => [i.code, i.path])).toEqual([
+      ["invalid", "/components/0/target"],
+      ["invalid", "/components/0/credits/0"],
+    ])
   })
 
   it("validates thresholds and keeps defaults for the rest", () => {
