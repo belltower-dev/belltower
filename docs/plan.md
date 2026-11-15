@@ -52,11 +52,13 @@ Update this section in the same commit as the work it describes.
   a missed heartbeat alerted and recovered within the target times.
 - Email alerts from the container adapter by SMTP (nodemailer), set by
   `BELLTOWER_SMTP_URL` and `BELLTOWER_EMAIL_FROM`. Plain text for now.
+- `s3Store` in the core (S3 API over fetch with SigV4 on Web Crypto), and
+  `--store s3://bucket/prefix` in the CLI. Contract-tested against a fake
+  S3; a live contract test runs when `BELLTOWER_S3_TEST_ENDPOINT` is set.
 
 **Next, in order:**
 
-1. An S3-compatible Store for the container adapter.
-2. `adapter-aws` and `examples/aws-sam`.
+1. `adapter-aws` and `examples/aws-sam`.
 
 Phase 1's done-when checks are below.
 

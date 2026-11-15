@@ -2,7 +2,10 @@ import { readFile } from "node:fs/promises"
 import { extname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { emailNotifier, smtpSettings } from "./email-notifier.ts"
+import { localFolderStore } from "./local-folder-store.ts"
 import {
+  s3Store,
+  type Store,
   buildNotifiers,
   validateConfig,
   type Capabilities,
@@ -134,4 +137,48 @@ export async function containerNotifiers(config: Config, secrets: Secrets): Prom
       { code: "missing-capability", path: `/notifiers/${Math.max(index, 0)}/type`, message: (error as Error).message },
     ])
   }
+}
+
+/**
+ * The Store a --store value names: s3://bucket/optional/prefix for
+ * S3-compatible storage, anything else a local folder. S3 settings come from
+ * the environment, so no credential is ever a flag.
+ */
+export function storeFromFlag(value: string, env: NodeJS.ProcessEnv): Store {
+  if (!value.startsWith("s3://")) return localFolderStore(value)
+  const rest = value.slice("s3://".length)
+  const slash = rest.indexOf("/")
+  const bucket = slash === -1 ? rest : rest.slice(0, slash)
+  const prefix = slash === -1 ? "" : rest.slice(slash + 1)
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) {
+    throw new CliError(EXIT.usage, [
+      { code: "usage", path: "--store", message: `"${bucket}" isn't a valid bucket name.`, fix: "Use s3://bucket-name or s3://bucket-name/prefix." },
+    ])
+  }
+  const missing = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"].filter((name) => !env[name])
+  const region = env.BELLTOWER_S3_REGION ?? env.AWS_REGION ?? env.AWS_DEFAULT_REGION
+  if (!region) missing.push("AWS_REGION")
+  if (missing.length) {
+    throw new CliError(EXIT.configInvalid, [
+      {
+        code: "missing-secret",
+        path: "--store",
+        message: `An s3:// store needs ${missing.join(", ")}, which ${missing.length === 1 ? "isn't" : "aren't"} set.`,
+        fix: "Set them in the environment. For storage other than AWS, also set BELLTOWER_S3_ENDPOINT, such as http://localhost:9000 for MinIO, and AWS_REGION to auto for R2.",
+      },
+    ])
+  }
+  const pathStyle = env.BELLTOWER_S3_PATH_STYLE === undefined ? undefined : env.BELLTOWER_S3_PATH_STYLE === "true"
+  return s3Store({
+    endpoint: env.BELLTOWER_S3_ENDPOINT ?? `https://s3.${region}.amazonaws.com`,
+    bucket,
+    region: region ?? "",
+    credentials: {
+      accessKeyId: env.AWS_ACCESS_KEY_ID ?? "",
+      secretAccessKey: env.AWS_SECRET_ACCESS_KEY ?? "",
+      ...(env.AWS_SESSION_TOKEN ? { sessionToken: env.AWS_SESSION_TOKEN } : {}),
+    },
+    ...(prefix ? { prefix } : {}),
+    ...(pathStyle !== undefined ? { pathStyle } : {}),
+  })
 }

@@ -465,8 +465,15 @@ it the same way, so it follows these rules:
 | --- | --- |
 | `--config <file>`: `.json` (a `$schema` key is allowed), `.js`, `.mjs` or `.ts` with the config as its default export | `$BELLTOWER_CONFIG`, then `belltower.config.json` |
 | `--regions <a,b>`: the deployment's regions | `$BELLTOWER_REGIONS`, then `local` |
-| `--store <dir>`: the local-folder Store | `$BELLTOWER_STORE`, then `./belltower-data` |
+| `--store <where>`: a folder for the local-folder Store, or `s3://bucket/prefix` for S3-compatible storage | `$BELLTOWER_STORE`, then `./belltower-data` |
 | `--port <n>` | `$PORT`, then 8080 |
+
+An `s3://` store reads `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`AWS_SESSION_TOKEN` (for temporary credentials) and `AWS_REGION` (`auto`
+for R2), plus `BELLTOWER_S3_ENDPOINT` for storage other than AWS and
+`BELLTOWER_S3_PATH_STYLE` to override the addressing style. Missing ones
+stop the command with exit code 3, naming them. Credentials are never
+flags.
 
 Secrets are environment variables, named in the config. On this adapter,
 notifiers are webhooks and email; an SMS notifier stops the command with

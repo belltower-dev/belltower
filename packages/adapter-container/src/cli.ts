@@ -13,11 +13,10 @@ import {
   type ResultsFile,
   type Store,
 } from "@belltower/core"
-import { localFolderStore } from "./local-folder-store.ts"
 import { nodeHttpClient } from "./node-http-client.ts"
 import { everyMinute } from "./schedule.ts"
 import { serveFetch } from "./server.ts"
-import { CliError, containerNotifiers, envSecrets, EXIT, loadSetup, type Setup } from "./setup.ts"
+import { CliError, containerNotifiers, envSecrets, EXIT, loadSetup, storeFromFlag, type Setup } from "./setup.ts"
 
 /*
  * The `belltower` command for the container adapter (docs/spec.md, "The
@@ -43,7 +42,8 @@ Options:
                     Default: $BELLTOWER_CONFIG, or belltower.config.json
   --regions <list>  The deployment's regions, separated by commas
                     Default: $BELLTOWER_REGIONS, or "local"
-  --store <dir>     Folder for stored results, incidents and status
+  --store <where>   Where results, incidents and status are kept: a folder,
+                    or s3://bucket/prefix for S3-compatible storage
                     Default: $BELLTOWER_STORE, or ./belltower-data
   --port <n>        serve: the port. Default: $PORT, or 8080
   --dry-run         run: do the work, but write nothing and send no alerts
@@ -53,7 +53,9 @@ Options:
 Exit codes: 0 success, 2 usage error, 3 config invalid, 4 check failed,
 5 platform error, 6 not authorized, 1 anything unexpected.
 Secrets are read from environment variables named in the config. Email
-notifiers also need BELLTOWER_SMTP_URL and BELLTOWER_EMAIL_FROM.`
+notifiers also need BELLTOWER_SMTP_URL and BELLTOWER_EMAIL_FROM. An s3://
+store reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN,
+AWS_REGION, and BELLTOWER_S3_ENDPOINT for storage other than AWS.`
 
 export interface Io {
   out(line: string): void
@@ -113,14 +115,14 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
         if (!setup.byRegion[values.region]) {
           throw usage(`"${values.region}" isn't one of the regions: ${Object.keys(setup.byRegion).join(", ")}.`, "Pass a region named in --regions.")
         }
-        const store = withDryRun(platform(localFolderStore(storeDir)), dryRun)
+        const store = withDryRun(platform(storeFromFlag(storeDir, io.env)), dryRun)
         const file = await runChecks(values.region, { ...deps(setup, store, io), http: nodeHttpClient() })
         report(file, describeResults(file, dryRun))
         return EXIT.ok
       }
       case "run decide": {
         const setup = await loadSetup(configPath, regionsFlag)
-        const store = withDryRun(platform(localFolderStore(storeDir)), dryRun)
+        const store = withDryRun(platform(storeFromFlag(storeDir, io.env)), dryRun)
         const would: Alert[] = []
         const notifiers = dryRun ? await recording(setup, io, would) : await containerNotifiers(setup.config, envSecrets(io.env))
         const result = await decide({ ...deps(setup, store, io), notifiers })
@@ -129,7 +131,7 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
       }
       case "serve": {
         const setup = await loadSetup(configPath, regionsFlag)
-        const store = platform(localFolderStore(storeDir))
+        const store = platform(storeFromFlag(storeDir, io.env))
         const notifiers = await containerNotifiers(setup.config, envSecrets(io.env))
         return await serve(setup, store, notifiers, Number(values.port ?? io.env.PORT ?? 8080), values.schedule === true, io, json, signal)
       }
@@ -163,7 +165,7 @@ function platform(store: Store): Store {
         return await f(...a)
       } catch (error) {
         throw new CliError(EXIT.platformError, [
-          { code: "store-error", path: "", message: `The store failed: ${(error as Error).message}`, fix: "Check that the --store folder exists and can be written." },
+          { code: "store-error", path: "", message: `The store failed: ${(error as Error).message}`, fix: "Check that the --store folder or bucket exists and can be written, and that its credentials are current." },
         ])
       }
     }
