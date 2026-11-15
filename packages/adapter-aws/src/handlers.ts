@@ -1,4 +1,5 @@
-import { nodeHttpClient } from "@belltower/adapter-container"
+// The HTTP client alone, so the Lambda bundle leaves out the container's SMTP and server code.
+import { nodeHttpClient } from "@belltower/adapter-container/node-http-client"
 import {
   buildNotifiers,
   decide,

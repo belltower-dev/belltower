@@ -9,6 +9,7 @@
     "@belltower/adapter-container": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "20.19.43"
+    "@types/node": "20.19.43",
+    "esbuild": "0.28.2"
   }
 }

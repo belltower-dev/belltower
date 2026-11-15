@@ -15,7 +15,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./cli": "./src/cli.ts"
+    "./cli": "./src/cli.ts",
+    "./node-http-client": "./src/node-http-client.ts"
   },
   "bin": {
     "belltower": "./src/cli.ts"
