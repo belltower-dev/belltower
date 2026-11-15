@@ -295,6 +295,11 @@ instructions: [certificates.md](certificates.md).
   the alert, then records that it did. If it stops in between, the next run
   sends the alert again rather than never. A notifier that fails doesn't
   stop the others; the failure is in `decide()`'s report.
+- **Webhook notifiers** POST JSON to the URL in their secret:
+  `{ "format": "belltower.alert/1", "level", "title", "text", "url" }`.
+  Fields are only added within a format version. The core sends webhooks
+  itself; adapters supply email and SMS, and a notifier type the adapter
+  can't send stops it at startup with the notifier's id.
 - **Alert level:** `critical` for critical checks and checks in critical
   components, `alert` otherwise. Each notifier sends the levels it's
   configured for, so SMS notifiers (default `critical` only) text only for
