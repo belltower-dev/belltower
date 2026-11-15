@@ -22,7 +22,16 @@ export interface Region {
   capabilities: Capabilities
 }
 
-export type Assignment = { ok: true; byRegion: Record<string, string[]> } | { ok: false; errors: string[] }
+export interface AssignmentError {
+  check: string
+  /** The check's field the error is about. */
+  field: "regions" | "type" | "verifyTls"
+  code: "unknown-reference" | "missing-capability"
+  message: string
+  fix: string
+}
+
+export type Assignment = { ok: true; byRegion: Record<string, string[]> } | { ok: false; errors: AssignmentError[] }
 
 /** What a check needs from the region that runs it. */
 function needs(check: CheckRef): (keyof Capabilities)[] {
@@ -49,13 +58,19 @@ const FIX: Record<keyof Capabilities, string> = {
  */
 export function assignChecks(checks: readonly CheckRef[], regions: readonly Region[]): Assignment {
   const byRegion: Record<string, string[]> = Object.fromEntries(regions.map((r) => [r.name, []]))
-  const errors: string[] = []
+  const errors: AssignmentError[] = []
   const known = new Set(regions.map((r) => r.name))
 
   for (const check of checks) {
     const unknown = (check.regions ?? []).filter((name) => !known.has(name))
     if (unknown.length) {
-      errors.push(`Check "${check.id}" names regions that aren't configured: ${unknown.join(", ")}.`)
+      errors.push({
+        check: check.id,
+        field: "regions",
+        code: "unknown-reference",
+        message: `Check "${check.id}" names regions that aren't configured: ${unknown.join(", ")}.`,
+        fix: `Use one of: ${[...known].join(", ")}, or leave regions out to run in every region.`,
+      })
       continue
     }
     const named = check.regions ? regions.filter((r) => check.regions?.includes(r.name)) : regions
@@ -63,7 +78,13 @@ export function assignChecks(checks: readonly CheckRef[], regions: readonly Regi
     const capable = named.filter((r) => need.every((n) => r.capabilities[n]))
     if (!capable.length) {
       const missing = need.find((n) => !named.some((r) => r.capabilities[n]))
-      errors.push(`Check "${check.id}" (${check.type}) can't run in any of its regions. ${missing ? FIX[missing] : "Assign it at least one region."}`)
+      errors.push({
+        check: check.id,
+        field: missing === "skipTlsVerify" ? "verifyTls" : check.regions ? "regions" : "type",
+        code: "missing-capability",
+        message: `Check "${check.id}" (${check.type}) can't run in any of its regions.`,
+        fix: missing ? FIX[missing] : "Assign it at least one region.",
+      })
       continue
     }
     const single = check.type === "heartbeat" || check.type === "email" || check.type === "tls" || check.type === "domain"

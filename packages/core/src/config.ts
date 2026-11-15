@@ -123,9 +123,59 @@ export interface Config {
   thresholds: Thresholds
 }
 
+/** Stable codes for config problems, for agents and scripts. */
+export type IssueCode =
+  | "required" // a required field is missing
+  | "invalid" // a value of the wrong kind, format or range
+  | "empty" // a list that needs at least one entry
+  | "unknown-field" // a field this object doesn't have
+  | "duplicate" // an id or name used twice
+  | "unknown-reference" // a reference to a component or check that doesn't exist
+  | "conflict" // two fields that can't be used together
+  | "missing-capability" // no region can do what the config asks
+  | "no-regions" // the adapter declared no regions
+
+export interface ConfigIssue {
+  code: IssueCode
+  /** JSON pointer to the field, such as /checks/0/timeoutSeconds; "" for the whole config. */
+  path: string
+  /** What's wrong. */
+  message: string
+  /** What to do about it, when the message doesn't already say. */
+  fix?: string
+}
+
 export type ConfigResult =
   | { ok: true; config: Config; byRegion: Record<string, string[]> }
-  | { ok: false; errors: string[] }
+  | { ok: false; /** One line per issue, for people. */ errors: string[]; issues: ConfigIssue[] }
+
+/** Collects issues with both a JSON pointer and a readable location. */
+class Issues {
+  readonly items: { issue: ConfigIssue; where: string }[] = []
+
+  add(where: string, path: string, code: IssueCode, message: string, fix?: string) {
+    this.items.push({ issue: { code, path, message, ...(fix !== undefined ? { fix } : {}) }, where })
+  }
+
+  get length(): number {
+    return this.items.length
+  }
+
+  failure(): { ok: false; errors: string[]; issues: ConfigIssue[] } {
+    return {
+      ok: false,
+      errors: this.items.map(({ issue, where }) => `${where ? `${where}: ` : ""}${issue.message}${issue.fix ? ` ${issue.fix}` : ""}`),
+      issues: this.items.map((i) => i.issue),
+    }
+  }
+}
+
+/** Where each parsed entry sat in its list, for JSON pointers. */
+const positions = new WeakMap<object, number>()
+
+function pointer(...parts: (string | number)[]): string {
+  return parts.map((p) => `/${String(p).replace(/~/g, "~0").replace(/\//g, "~1")}`).join("")
+}
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
   confirmRegions: 2,
@@ -148,11 +198,14 @@ const UNIT_SECONDS = { s: 1, m: 60, h: 3600, d: 86400 } as const
 
 /** Validates a parsed config against the regions the adapter declares. */
 export function validateConfig(input: unknown, regions: readonly Region[]): ConfigResult {
-  const errors: string[] = []
-  if (!regions.length) errors.push("No regions are declared. The adapter must supply at least one region.")
+  const issues = new Issues()
+  if (!regions.length) issues.add("", "", "no-regions", "No regions are declared.", "The adapter must supply at least one region.")
 
-  if (!isRecord(input)) return { ok: false, errors: [...errors, "The config must be an object with components, checks and notifiers."] }
-  const root = new Fields(input, "", errors, ["components", "checks", "notifiers", "thresholds"])
+  if (!isRecord(input)) {
+    issues.add("", "", "invalid", "The config must be an object with components, checks and notifiers.")
+    return issues.failure()
+  }
+  const root = new Fields(input, "", "", issues, ["components", "checks", "notifiers", "thresholds"])
 
   const components = list(root, "components", "add at least one component.", (f) => readComponent(f))
   const notifiers = list(root, "notifiers", "add at least one notifier, or no alert can be sent.", (f) => readNotifier(f))
@@ -160,45 +213,53 @@ export function validateConfig(input: unknown, regions: readonly Region[]): Conf
   const thresholds = readThresholds(root)
   root.finish()
 
-  unique(components, (c) => c.name, "components", "name", errors)
-  unique(notifiers, (n) => n.id, "notifiers", "id", errors)
-  unique(checks, (c) => c.id, "checks", "id", errors)
+  unique(components, (c) => c.name, "components", "name", issues)
+  unique(notifiers, (n) => n.id, "notifiers", "id", issues)
+  unique(checks, (c) => c.id, "checks", "id", issues)
 
+  const at = (check: Check, field: string) => pointer("checks", positions.get(check) ?? 0, field)
   const componentNames = new Set(components.map((c) => c.name))
   const byId = new Map(checks.map((c) => [c.id, c]))
   for (const check of checks) {
     if (!componentNames.has(check.component)) {
-      errors.push(`${label(check)}.component: "${check.component}" isn't in components. Add it there, or use one of: ${[...componentNames].join(", ") || "(none)"}.`)
+      issues.add(`${label(check)}.component`, at(check, "component"), "unknown-reference", `"${check.component}" isn't in components.`, `Add it there, or use one of: ${[...componentNames].join(", ") || "(none)"}.`)
     }
     if (check.type === "email") {
       const hb = byId.get(check.heartbeat)
-      if (!hb) errors.push(`${label(check)}.heartbeat: no check has the id "${check.heartbeat}". Name the heartbeat check that carries the run ID.`)
-      else if (hb.type !== "heartbeat") errors.push(`${label(check)}.heartbeat: "${check.heartbeat}" is a ${hb.type} check. Name a heartbeat check.`)
+      if (!hb) issues.add(`${label(check)}.heartbeat`, at(check, "heartbeat"), "unknown-reference", `no check has the id "${check.heartbeat}".`, "Name the heartbeat check that carries the run ID.")
+      else if (hb.type !== "heartbeat") issues.add(`${label(check)}.heartbeat`, at(check, "heartbeat"), "invalid", `"${check.heartbeat}" is a ${hb.type} check.`, "Name a heartbeat check.")
     }
   }
 
   const hasSms = notifiers.some((n) => n.type === "sms")
   if (hasSms && regions.length && !regions.some((r) => r.capabilities.sms)) {
-    errors.push("notifiers: an sms notifier is configured, but no region's adapter can send SMS. Run decide() on an adapter that can (aws), or remove the sms notifier.")
+    const index = notifiers.findIndex((n) => n.type === "sms")
+    issues.add("notifiers", pointer("notifiers", positions.get(notifiers[index] ?? {}) ?? index, "type"), "missing-capability", "an sms notifier is configured, but no region's adapter can send SMS.", "Run decide() on an adapter that can (aws), or remove the sms notifier.")
   }
   if (!hasSms && notifiers.length) {
     for (const check of checks) {
       if (check.severity === "critical") {
-        errors.push(`${label(check)}.severity: critical checks also alert by SMS, and no sms notifier is configured. Add an sms notifier, or set severity to "normal".`)
+        issues.add(`${label(check)}.severity`, at(check, "severity"), "conflict", "critical checks also alert by SMS, and no sms notifier is configured.", 'Add an sms notifier, or set severity to "normal".')
       }
     }
     for (const component of components) {
       if (component.critical) {
-        errors.push(`components (${component.name}).critical: critical components also alert by SMS, and no sms notifier is configured. Add an sms notifier, or set critical to false.`)
+        issues.add(`components (${component.name}).critical`, pointer("components", positions.get(component) ?? 0, "critical"), "conflict", "critical components also alert by SMS, and no sms notifier is configured.", "Add an sms notifier, or set critical to false.")
       }
     }
   }
 
-  if (errors.length) return { ok: false, errors }
+  if (issues.length) return issues.failure()
 
   const refs = checks.map((c) => (c.type === "http" && !c.verifyTls ? { ...c, needs: ["skipTlsVerify" as const] } : c))
   const assignment = assignChecks(refs, regions)
-  if (!assignment.ok) return { ok: false, errors: assignment.errors }
+  if (!assignment.ok) {
+    for (const e of assignment.errors) {
+      const check = byId.get(e.check)
+      issues.add("", check ? at(check, e.field) : "", e.code, e.message, e.fix)
+    }
+    return issues.failure()
+  }
   return { ok: true, config: { components, checks, notifiers, thresholds }, byRegion: assignment.byRegion }
 }
 
@@ -223,7 +284,7 @@ function readNotifier(f: Fields): NotifierConfig | null {
     const pattern = type === "email" ? EMAIL : PHONE
     const what = type === "email" ? "an email address" : "a phone number in international format, such as +15555550100"
     const to = f.stringList("to", { required: true, pattern, what })
-    if (to && !to.length) f.error("to", "add at least one recipient.")
+    if (to && !to.length) f.error("to", "empty", "add at least one recipient.")
     if (id !== undefined && to?.length) result = { id, type, levels, to }
   }
   f.finish()
@@ -234,10 +295,10 @@ function readThresholds(root: Fields): Thresholds {
   const raw = root.raw("thresholds")
   if (raw === undefined) return DEFAULT_THRESHOLDS
   if (!isRecord(raw)) {
-    root.error("thresholds", "must be an object.")
+    root.error("thresholds", "invalid", "must be an object.")
     return DEFAULT_THRESHOLDS
   }
-  const f = new Fields(raw, "thresholds", root.errors, Object.keys(DEFAULT_THRESHOLDS))
+  const f = new Fields(raw, "thresholds", pointer("thresholds"), root.issues, Object.keys(DEFAULT_THRESHOLDS))
   const t = { ...DEFAULT_THRESHOLDS }
   for (const key of Object.keys(DEFAULT_THRESHOLDS) as (keyof Thresholds)[]) {
     t[key] = f.integer(key, DEFAULT_THRESHOLDS[key], { min: 1 })
@@ -251,7 +312,7 @@ function readCheck(f: Fields): Check | null {
   const type = f.oneOf("type", CHECK_TYPES, { required: true })
   const component = f.string("component", { required: true })
   const regions = f.stringList("regions")
-  if (regions && !regions.length) f.error("regions", "add at least one region, or leave regions out to run in every region.")
+  if (regions && !regions.length) f.error("regions", "empty", "add at least one region, or leave regions out to run in every region.")
   const severity = f.oneOf("severity", ["normal", "critical"] as const) ?? "normal"
   const isPublic = f.boolean("public", true)
   if (type === undefined) {
@@ -312,20 +373,20 @@ function readHttp(f: Fields, base: Pick<CheckBase, "severity" | "public" | "regi
   const method = f.oneOf("method", METHODS, { transform: (s) => s.toUpperCase() }) ?? "GET"
   const headers = f.stringRecord("headers")
   const body = f.string("body")
-  if (body !== undefined && (method === "GET" || method === "HEAD")) f.error("body", `a ${method} request can't have a body. Remove body, or set method to POST.`)
+  if (body !== undefined && (method === "GET" || method === "HEAD")) f.error("body", "conflict", `a ${method} request can't have a body.`, "Remove body, or set method to POST.")
   const basicAuth = f.string("basicAuth", { hint: "the name of the secret holding user:password" })
   const expectStatus = f.statusRanges("expectStatus")
   const expectKeyword = f.string("expectKeyword")
   const rejectKeyword = f.string("rejectKeyword")
   if (method === "HEAD") {
     for (const key of ["expectKeyword", "rejectKeyword"] as const) {
-      if (f.has(key)) f.error(key, "a HEAD response has no body to search. Set method to GET, or remove the keyword.")
+      if (f.has(key)) f.error(key, "conflict", "a HEAD response has no body to search.", "Set method to GET, or remove the keyword.")
     }
   }
   const timeoutSeconds = f.number("timeoutSeconds", 10, { above: 0 })
   const slowSeconds = f.number("slowSeconds", 5, { above: 0 })
   if (slowSeconds >= timeoutSeconds) {
-    f.error("slowSeconds", `must be less than timeoutSeconds (${timeoutSeconds}), or a slow response would time out before it counts as slow.`)
+    f.error("slowSeconds", "conflict", `must be less than timeoutSeconds (${timeoutSeconds}), or a slow response would time out before it counts as slow.`)
   }
   const followRedirects = f.boolean("followRedirects", true)
   const verifyTls = f.boolean("verifyTls", true)
@@ -353,40 +414,43 @@ function readHttp(f: Fields, base: Pick<CheckBase, "severity" | "public" | "regi
 function expiryDays(f: Fields, warnDefault: number, alertDefault: number) {
   const warnDays = f.integer("warnDays", warnDefault, { min: 1 })
   const alertDays = f.integer("alertDays", alertDefault, { min: 1 })
-  if (alertDays > warnDays) f.error("alertDays", `must not be more than warnDays (${warnDays}), or the warning would come after the alert.`)
+  if (alertDays > warnDays) f.error("alertDays", "conflict", `must not be more than warnDays (${warnDays}), or the warning would come after the alert.`)
   return { warnDays, alertDays }
 }
 
-function list<T>(root: Fields, key: string, empty: string, read: (f: Fields) => T | null): T[] {
+function list<T extends object>(root: Fields, key: string, empty: string, read: (f: Fields) => T | null): T[] {
   const raw = root.raw(key)
   if (raw === undefined) {
-    root.error(key, "is required.")
+    root.error(key, "required", "is required.")
     return []
   }
   if (!Array.isArray(raw)) {
-    root.error(key, "must be a list.")
+    root.error(key, "invalid", "must be a list.")
     return []
   }
-  if (!raw.length) root.error(key, empty)
+  if (!raw.length) root.error(key, "empty", empty)
   const out: T[] = []
   raw.forEach((item: unknown, i) => {
     const name = isRecord(item) && typeof (item.id ?? item.name) === "string" ? ` (${String(item.id ?? item.name)})` : ""
     const path = `${key}[${i}]${name}`
     if (!isRecord(item)) {
-      root.errors.push(`${path}: must be an object.`)
+      root.issues.add(path, pointer(key, i), "invalid", "must be an object.")
       return
     }
-    const value = read(new Fields(item, path, root.errors))
-    if (value !== null) out.push(value)
+    const value = read(new Fields(item, path, pointer(key, i), root.issues))
+    if (value !== null) {
+      positions.set(value, i)
+      out.push(value)
+    }
   })
   return out
 }
 
-function unique<T>(items: readonly T[], key: (t: T) => string, section: string, field: string, errors: string[]) {
+function unique<T extends object>(items: readonly T[], key: (t: T) => string, section: string, field: string, issues: Issues) {
   const seen = new Set<string>()
   for (const item of items) {
     const k = key(item)
-    if (seen.has(k)) errors.push(`${section}: two entries have the ${field} "${k}". Each ${field} must be unique.`)
+    if (seen.has(k)) issues.add(section, pointer(section, positions.get(item) ?? 0, field), "duplicate", `two entries have the ${field} "${k}".`, `Each ${field} must be unique.`)
     seen.add(k)
   }
 }
@@ -409,8 +473,11 @@ class Fields {
 
   constructor(
     private readonly obj: Record<string, unknown>,
-    private readonly path: string,
-    readonly errors: string[],
+    /** Readable location, such as checks[0] (home). */
+    private readonly where: string,
+    /** JSON pointer to this object. */
+    private readonly at: string,
+    readonly issues: Issues,
     /** Keys accepted beyond those read, for typo suggestions. */
     private readonly known: readonly string[] = [],
   ) {}
@@ -424,18 +491,20 @@ class Fields {
     return this.obj[key]
   }
 
-  error(key: string, message: string) {
-    this.errors.push(`${this.path ? `${this.path}.` : ""}${key}: ${message}`)
+  error(key: string, code: IssueCode, message: string, fix?: string, index?: number) {
+    const name = index === undefined ? key : `${key}[${index}]`
+    const path = index === undefined ? `${this.at}${pointer(key)}` : `${this.at}${pointer(key, index)}`
+    this.issues.add(`${this.where ? `${this.where}.` : ""}${name}`, path, code, message, fix)
   }
 
   private missing(key: string, hint?: string) {
-    this.error(key, hint ? `is required: ${hint}.` : "is required.")
+    this.error(key, "required", hint ? `is required: ${hint}.` : "is required.")
   }
 
   id(): string | undefined {
     const value = this.string("id", { required: true })
     if (value !== undefined && !ID.test(value)) {
-      this.error("id", `${show(value)} must use lowercase letters, digits, "-" and "_", starting with a letter or digit. It appears in storage keys and URLs.`)
+      this.error("id", "invalid", `${show(value)} must use lowercase letters, digits, "-" and "_", starting with a letter or digit. It appears in storage keys and URLs.`)
       return undefined
     }
     return value
@@ -448,7 +517,7 @@ class Fields {
       return undefined
     }
     if (typeof value !== "string" || value === "") {
-      this.error(key, `must be a non-empty string${opts.hint ? ` (${opts.hint})` : ""}, got ${show(value)}.`)
+      this.error(key, "invalid", `must be a non-empty string${opts.hint ? ` (${opts.hint})` : ""}, got ${show(value)}.`)
       return undefined
     }
     return value
@@ -457,12 +526,12 @@ class Fields {
   oneOf<T extends string>(key: string, allowed: readonly T[], opts: { required?: boolean; transform?: (s: string) => string } = {}): T | undefined {
     const value = this.raw(key)
     if (value === undefined) {
-      if (opts.required) this.error(key, `is required: one of ${allowed.join(", ")}.`)
+      if (opts.required) this.error(key, "required", `is required: one of ${allowed.join(", ")}.`)
       return undefined
     }
     const s = typeof value === "string" && opts.transform ? opts.transform(value) : value
     if (typeof s === "string" && (allowed as readonly string[]).includes(s)) return s as T
-    this.error(key, `must be one of ${allowed.join(", ")}, got ${show(value)}.`)
+    this.error(key, "invalid", `must be one of ${allowed.join(", ")}, got ${show(value)}.`)
     return undefined
   }
 
@@ -470,7 +539,7 @@ class Fields {
     const value = this.raw(key)
     if (value === undefined) return fallback
     if (typeof value === "boolean") return value
-    this.error(key, `must be true or false, got ${show(value)}.`)
+    this.error(key, "invalid", `must be true or false, got ${show(value)}.`)
     return fallback
   }
 
@@ -478,7 +547,7 @@ class Fields {
     const value = this.raw(key)
     if (value === undefined) return fallback
     if (typeof value === "number" && Number.isFinite(value) && value > opts.above) return value
-    this.error(key, `must be a number above ${opts.above}, got ${show(value)}.`)
+    this.error(key, "invalid", `must be a number above ${opts.above}, got ${show(value)}.`)
     return fallback
   }
 
@@ -487,7 +556,7 @@ class Fields {
     if (value === undefined) return fallback
     if (typeof value === "number" && Number.isInteger(value) && value >= opts.min && (opts.max === undefined || value <= opts.max)) return value
     const range = opts.max === undefined ? `${opts.min} or more` : `from ${opts.min} to ${opts.max}`
-    this.error(key, `must be a whole number ${range}, got ${show(value)}.`)
+    this.error(key, "invalid", `must be a whole number ${range}, got ${show(value)}.`)
     return fallback
   }
 
@@ -502,7 +571,7 @@ class Fields {
       if (m) n = Number(m[1]) / Number(m[2])
     }
     if (n > 0 && n < 1) return n
-    this.error(key, `must be a fraction between 0 and 1, such as 0.33 or "1/3", got ${show(value)}.`)
+    this.error(key, "invalid", `must be a fraction between 0 and 1, such as 0.33 or "1/3", got ${show(value)}.`)
     return fallback
   }
 
@@ -520,7 +589,7 @@ class Fields {
     if (value === "hourly") return 3600
     const m = typeof value === "string" ? DURATION.exec(value) : null
     if (m && Number(m[1]) > 0) return Number(m[1]) * UNIT_SECONDS[m[2] as keyof typeof UNIT_SECONDS]
-    this.error(key, `must be a duration such as "30s", "15m", "1h" or "1d", or a whole number of seconds, got ${show(value)}.`)
+    this.error(key, "invalid", `must be a duration such as "30s", "15m", "1h" or "1d", or a whole number of seconds, got ${show(value)}.`)
     return fallback
   }
 
@@ -531,7 +600,7 @@ class Fields {
       return fallback
     }
     if (typeof value === "string" && HOST.test(value)) return value.toLowerCase()
-    this.error(key, `must be a host name such as www.example.com, without a scheme or path, got ${show(value)}.`)
+    this.error(key, "invalid", `must be a host name such as www.example.com, without a scheme or path, got ${show(value)}.`)
     return undefined
   }
 
@@ -545,7 +614,7 @@ class Fields {
       parsed = null
     }
     if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
-      this.error(key, `must be an http or https URL, got ${show(value)}.`)
+      this.error(key, "invalid", `must be an http or https URL, got ${show(value)}.`)
       return undefined
     }
     return value
@@ -558,7 +627,7 @@ class Fields {
       return undefined
     }
     if (!Array.isArray(value)) {
-      this.error(key, `must be a list, got ${show(value)}.`)
+      this.error(key, "invalid", `must be a list, got ${show(value)}.`)
       return undefined
     }
     const out: T[] = []
@@ -570,8 +639,8 @@ class Fields {
         (!allowed || allowed.includes(item)) &&
         (!opts.pattern || opts.pattern.test(item))
       if (ok) out.push(item as T)
-      else if (opts.allowed) this.error(`${key}[${i}]`, `must be one of ${opts.allowed.join(", ")}, got ${show(item)}.`)
-      else this.error(`${key}[${i}]`, `must be ${opts.what ?? "a non-empty string"}, got ${show(item)}.`)
+      else if (opts.allowed) this.error(key, "invalid", `must be one of ${opts.allowed.join(", ")}, got ${show(item)}.`, undefined, i)
+      else this.error(key, "invalid", `must be ${opts.what ?? "a non-empty string"}, got ${show(item)}.`, undefined, i)
     })
     return out.length === value.length ? out : undefined
   }
@@ -580,7 +649,7 @@ class Fields {
     const value = this.raw(key)
     if (value === undefined) return {}
     if (!isRecord(value) || !Object.values(value).every((v) => typeof v === "string")) {
-      this.error(key, `must be an object of header names to string values, got ${show(value)}.`)
+      this.error(key, "invalid", `must be an object of header names to string values, got ${show(value)}.`)
       return {}
     }
     return value as Record<string, string>
@@ -598,11 +667,11 @@ class Fields {
         const base = Number(item[0]) * 100
         out.push({ min: base, max: base + 99 })
       } else {
-        this.error(key, `must be status codes from 100 to 599 or classes such as "2xx", got ${show(item)}.`)
+        this.error(key, "invalid", `must be status codes from 100 to 599 or classes such as "2xx", got ${show(item)}.`)
         return [{ min: 200, max: 299 }]
       }
     }
-    if (!out.length) this.error(key, 'add at least one status code or class, or leave it out to accept any 2xx.')
+    if (!out.length) this.error(key, "empty", 'add at least one status code or class, or leave it out to accept any 2xx.')
     return out.length ? out : [{ min: 200, max: 299 }]
   }
 
@@ -613,7 +682,7 @@ class Fields {
     for (const key of Object.keys(this.obj)) {
       if (this.read.has(key) || this.known.includes(key)) continue
       const near = known.find((k) => distance(k.toLowerCase(), key.toLowerCase()) <= 2)
-      this.error(key, `isn't a known field${near ? `. Did you mean ${near}?` : "."}`)
+      this.error(key, "unknown-field", "isn't a known field.", near ? `Did you mean ${near}?` : undefined)
     }
   }
 }

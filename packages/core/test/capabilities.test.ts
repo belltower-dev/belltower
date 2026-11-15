@@ -19,7 +19,7 @@ describe("assignChecks", () => {
   it("refuses a certificate check no region can run, and says how to fix it", () => {
     const result = assignChecks([{ id: "tls-www", type: "tls" }], [workers("us"), workers("eu")])
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.errors[0]).toContain("Add a region on a Node adapter")
+    if (!result.ok) expect(result.errors[0]?.fix).toContain("Add a region on a Node adapter")
   })
 
   it("refuses an email check without an inbox", () => {
@@ -35,7 +35,8 @@ describe("assignChecks", () => {
   it("names regions in config that don't exist", () => {
     const result = assignChecks([{ id: "home", type: "http", regions: ["mars"] }], [workers("us")])
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.errors[0]).toContain("mars")
+    if (!result.ok) expect(result.errors[0]).toMatchObject({ check: "home", field: "regions", code: "unknown-reference" })
+    if (!result.ok) expect(result.errors[0]?.message).toContain("mars")
   })
 
   it("keeps a check that skips TLS verification to regions that can", () => {
@@ -43,7 +44,8 @@ describe("assignChecks", () => {
     expect(result).toEqual({ ok: true, byRegion: { us: [], eu: ["staging"] } })
     const refused = assignChecks([{ id: "staging", type: "http", needs: ["skipTlsVerify"] }], [workers("us")])
     expect(refused.ok).toBe(false)
-    if (!refused.ok) expect(refused.errors[0]).toContain("Set verifyTls to true")
+    if (!refused.ok) expect(refused.errors[0]).toMatchObject({ field: "verifyTls", code: "missing-capability" })
+    if (!refused.ok) expect(refused.errors[0]?.fix).toContain("Set verifyTls to true")
   })
 
   it("judges heartbeats in one region only", () => {

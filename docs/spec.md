@@ -170,7 +170,12 @@ regions only to limit a check to some of them.
 ### Validation
 
 `validateConfig(config, regions)` runs at deploy and refuses a config with
-any of these, listing every error at once with the field it's about:
+any of these, listing every error at once with the field it's about. Each
+issue has a stable `code` (`required`, `invalid`, `empty`, `unknown-field`,
+`duplicate`, `unknown-reference`, `conflict`, `missing-capability`,
+`no-regions`), a `path` as a JSON pointer (`/checks/0/timeoutSeconds`), a
+`message`, and a `fix` when the message doesn't already say what to do.
+The same issues also come as one readable line each.
 
 - A missing required field, a value of the wrong kind, or a field the check
   type doesn't have. A likely typo gets a suggestion (`expectKeywords`:

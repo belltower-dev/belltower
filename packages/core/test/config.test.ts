@@ -85,6 +85,34 @@ describe("validateConfig", () => {
     expect(errorsFor(config)).toEqual(['checks[0] (home).timeoutSeconds: must be a number above 0, got "ten".'])
   })
 
+  it("gives each issue a stable code, a JSON pointer, and a fix when there is one", () => {
+    const config = base()
+    config.checks = [
+      { id: "home", type: "http", component: "Website", url: "https://www.example.com/", timeoutSeconds: "ten" },
+      { id: "api", type: "http", component: "Billing", url: "https://api.example.com/", expectKeywords: "ok" },
+    ]
+    const result = validateConfig(config, regions)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.issues).toEqual([
+      { code: "invalid", path: "/checks/0/timeoutSeconds", message: 'must be a number above 0, got "ten".' },
+      { code: "unknown-field", path: "/checks/1/expectKeywords", message: "isn't a known field.", fix: "Did you mean expectKeyword?" },
+      { code: "unknown-reference", path: "/checks/1/component", message: '"Billing" isn\'t in components.', fix: "Add it there, or use one of: Website, API." },
+    ])
+  })
+
+  it("points at list items and capability problems", () => {
+    const config = base()
+    config.notifiers = [{ id: "ops", type: "email", to: ["ops@example.com", "not-an-address"] }]
+    config.checks = [{ id: "home", type: "http", component: "Website", url: "https://www.example.com/", verifyTls: false }]
+    const listItem = validateConfig(config, regions)
+    expect(!listItem.ok && listItem.issues[0]).toMatchObject({ code: "invalid", path: "/notifiers/0/to/1" })
+
+    config.notifiers = [{ id: "ops", type: "email", to: ["ops@example.com"] }]
+    const capability = validateConfig(config, [workers("us")])
+    expect(!capability.ok && capability.issues[0]).toMatchObject({ code: "missing-capability", path: "/checks/0/verifyTls" })
+  })
+
   it("reports every error at once", () => {
     const config = base()
     config.checks = [
