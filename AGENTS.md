@@ -11,8 +11,11 @@ built next.
 1. Read the **Status** section at the top of [docs/plan.md](docs/plan.md):
    what's done, what's next, in order. Pick up the first item under "Next"
    unless you've been asked for something else.
-2. Read the parts of [docs/spec.md](docs/spec.md) that item touches.
-3. When a piece is finished: tests and typecheck pass, the spec and the
+2. Read [docs/direction.md](docs/direction.md): what Belltower is for, and
+   requirements not yet in the spec. If one belongs to the phase you're in,
+   fold it into the spec and plan first.
+3. Read the parts of [docs/spec.md](docs/spec.md) that item touches.
+4. When a piece is finished: tests and typecheck pass, the spec and the
    plan's Status are updated, anything not tried for real is added to
    [docs/untested.md](docs/untested.md), and it's committed.
 
