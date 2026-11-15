@@ -12,9 +12,10 @@ pnpm test -t "judges heartbeats"                    # tests whose name matches
 pnpm exec vitest                                    # watch mode
 ```
 
-There is no build step. `@belltower/core` exports its `.ts` source directly
-(`"exports": { ".": "./src/index.ts" }`), and `pnpm typecheck` only covers
-`packages/core`; add new packages to that script when they appear.
+There is no build step. Packages export their `.ts` source directly
+(`"exports": { ".": "./src/index.ts" }`). `pnpm typecheck` runs `tsc` on
+each package in turn; add new packages to that script when they appear.
+Adapters run the core's contract suites from `@belltower/core/contracts`.
 
 ## TypeScript settings that bite
 

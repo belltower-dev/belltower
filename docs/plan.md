@@ -29,15 +29,17 @@ Update this section in the same commit as the work it describes.
   breakdown when the adapter's HttpClient reports it), failure details,
   one results file per run. `skipTlsVerify` and `timingBreakdown`
   capabilities. Tested with a fake HttpClient.
+- Store contract suite (`packages/core/test/contracts/store.ts`, exported as
+  `@belltower/core/contracts`), passed by the in-memory Store in the core
+  and the local-folder Store in `packages/adapter-container`.
 
 **Next, in order:**
 
-1. The local-folder Store and the Store contract suite.
-2. `decide` and its rules, pure and tested with recorded results.
-3. `handle` for heartbeats.
-4. `adapter-container`, then `examples/local`: the first thing that runs
-   end to end.
-5. `adapter-aws` and `examples/aws-sam`.
+1. `decide` and its rules, pure and tested with recorded results.
+2. `handle` for heartbeats.
+3. The rest of `adapter-container`, then `examples/local`: the first thing
+   that runs end to end.
+4. `adapter-aws` and `examples/aws-sam`.
 
 Phase 1's done-when checks are below. Things built but not yet tried for
 real go in [untested.md](untested.md).

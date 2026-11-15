@@ -76,7 +76,19 @@ to what a small team needs.
 | HTTP client | No | `fetch(request, { verifyTls })` | Web-standard `fetch` by default. An adapter's own client can skip certificate verification and report DNS, connect and TLS times |
 
 The store must give read-after-write consistency and be reachable from every
-region. S3, R2 and Google Cloud Storage all do.
+region. S3, R2 and Google Cloud Storage all do. Every Store passes the same
+contract suite (`@belltower/core/contracts`):
+
+- `get` returns `null` for a key never written, and an empty body as `""`.
+- `put` replaces a key's contents, and a `get` right after sees the new
+  contents, including after many parallel puts.
+- `list(prefix)` returns every key that starts with the prefix, at any
+  depth, in lexical order. The prefix can end partway through a name
+  (`results/us` also matches `results/use/...`).
+
+The core includes an in-memory Store for tests. The container adapter
+includes a local-folder Store: one file per key, written to a temporary
+file and renamed into place, refusing keys with empty, `.` or `..` parts.
 
 ### Adapters
 

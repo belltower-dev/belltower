@@ -1,0 +1,28 @@
+{
+  "name": "@belltower/adapter-container",
+  "version": "0.0.0",
+  "description": "Runs Belltower on Node: a container image, Cloud Run, Kubernetes or any host",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acrstatus/belltower.git",
+    "directory": "packages/adapter-container"
+  },
+  "homepage": "https://github.com/acrstatus/belltower",
+  "bugs": {
+    "url": "https://github.com/acrstatus/belltower/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@belltower/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43"
+  }
+}

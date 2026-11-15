@@ -1,5 +1,6 @@
 export type * from "./ports.ts"
 export * from "./config.ts"
 export * from "./check.ts"
+export { memoryStore } from "./memory-store.ts"
 export { VERSION } from "./version.ts"
 export { assignChecks, type Assignment, type CheckRef, type CheckType, type Region } from "./capabilities.ts"
