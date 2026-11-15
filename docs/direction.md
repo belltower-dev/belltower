@@ -281,6 +281,23 @@ protected against bots without a visual puzzle (puzzles fail accessibility).
   scheduled maintenance), so existing tools read a Belltower page without
   changes. `status.json`, `history.json` and the feeds sit alongside
   (requirement 7).
+- A Markdown copy of every page and an `llms.txt` for the page, so agents
+  read status without parsing HTML (requirement 10). A JSON Feed beside
+  Atom and RSS.
+
+**Proposed, not yet decided**
+
+- Each incident update names the components it affects and their state at
+  that time, such as "API (Degraded performance)", so the page shows how
+  an incident moved.
+- A "Checked from" section listing the regions, each with whether it wrote
+  results in the last few minutes. Visitors see where checks run, and a
+  stalled region is visible.
+- An event log on History: every update of every incident in one list,
+  newest first, with its time, stage and incident.
+- The age of each incident beside its date ("9 days ago").
+- Degraded minutes per day in the bars, an optional notice at the top of
+  the page, History grouped by month, and header links.
 
 **Later**
 
@@ -358,7 +375,7 @@ becoming an on-call scheduling product.
 | 10. `validate`, `try`, `deploy`, `verify`, `heartbeat-snippet`, the config JSON Schema | 2 and 3 |
 | 10. MCP server, incident payloads for agents | 3 |
 | 10. `suggest`, `init`, `llms.txt`, template `AGENTS.md`, README prompt | 4 |
-| 11. Layout, five states, groups, incident pages and stages, daily history, themes, local time, feeds, `summary.json` | 2, with `buildPage()` |
+| 11. Layout, five states, groups, incident pages and stages, daily history, themes, local time, feeds, `summary.json`, Markdown copies and the page's `llms.txt` | 2, with `buildPage()` |
 | 11. Email and webhook subscriptions | 3 |
 | 11. Slack subscriptions | 4 |
 | 11. Hub page, private pages | Later |
@@ -374,7 +391,8 @@ becoming an on-call scheduling product.
   headers) are in the spec's "Notes", from `belltower notes push`. The
   logo's alt text and the wording rules come with `buildPage()`.
 - 11. The phase 2 parts (pages, five states, groups, incident stages and
-  impact, daily history, themes, local time, feeds, `summary.json`): the
+  impact, daily history, themes, local time, feeds, `summary.json`,
+  Markdown copies and the page's `llms.txt`): the
   spec's "Status page" and "Notes". Subscriptions by email, webhook and
   Slack wait for phases 3 and 4.
 - 12. Branding from config with the contrast check: the spec's "Status

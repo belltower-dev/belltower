@@ -144,7 +144,7 @@ examples/
 | Daily roll-up into `public/history.json`, 90 days per component | |
 | Monthly report as JSON and CSV, with targets and credit tiers from config | |
 | Incident and maintenance notes from Markdown; maintenance suppresses alerts and downtime | |
-| `buildPage()`: static page, Atom feed, branding from config | |
+| `buildPage()`: static page, Atom, RSS and JSON feeds, Markdown copies and `llms.txt`, branding from config | |
 | Accessibility: the requirements in the spec's "Accessibility" section; axe-core in CI on every page state, light and dark, at 320 pixels | WCAG 2.1 AA, a release requirement |
 | Brand colors from config checked for contrast at build | Fails the build with the failing pair |
 | Freshness: document how a deployment alerts when `status.json` is stale | The monitor can't watch itself |
@@ -154,6 +154,8 @@ examples/
 - [ ] The page shows components, overall state, 90-day bars with text
       labels, this month against target, incidents and maintenance.
 - [ ] With JavaScript off, it shows the state as of the last build.
+- [ ] Each page's Markdown copy says the same as the page, and `llms.txt`
+      lists every page, JSON file and feed.
 - [ ] axe-core reports no violations on every page state, and a manual pass
       (keyboard, VoiceOver, NVDA, 200% and 400% zoom) finds no WCAG 2.1 AA
       failures.

@@ -413,8 +413,9 @@ of the last build; with it, the status page refreshes from
 | History | Every day of the last 90, newest first, with its incidents and maintenance, or "No incidents reported" on a quiet day ("No incidents reported today" for today) |
 | One per incident | A permanent address: title, stage, impact, duration, components affected, and every update with its stage and time |
 
-Plus `feed.atom` and `feed.rss` (incidents and maintenance) and
-`summary.json` beside the pages.
+Plus `feed.atom`, `feed.rss` and `feed.json` (JSON Feed) of incidents and
+maintenance, `summary.json`, and a Markdown copy of each page (see
+"Machine-readable status").
 
 ### States
 
@@ -441,7 +442,8 @@ Degraded performance, Maintenance, Operational.
   ("Hide Europe", "Show Europe") with `aria-expanded`.
 - Each shows its name (a link when `link` is set), its `description`, its
   state, and its uptime for 90 days.
-- **90-day bars,** one per day. Each bar has a text label (date, uptime
+- **90-day bars,** one per day. Days before monitoring began show as "No
+  data", and the legend includes it. Each bar has a text label (date, uptime
   percentage, incidents), and the same figures are in a table. Under the
   bars, this month's availability next to the target.
 - **Response time:** a chart of the last 24 hours and the last 90 days,
@@ -451,7 +453,9 @@ Degraded performance, Maintenance, Operational.
 
 ### Incidents
 
-- Open incidents first, then the last 90 days.
+- Open incidents first, then the last 90 days. With none open, the Status
+  page says "No incidents in the last 7 days" when that's true, with a link
+  to History.
 - **Stage:** each update has one, as a word: Investigating, Identified,
   Monitoring, Resolved, or Update.
 - **Impact:** None, Minor, Major or Critical. "None" is for components
@@ -505,6 +509,14 @@ From the config's `page` section:
   Existing tools read a Belltower page without changes.
 - `status.json`, `history.json` and the feeds sit beside it. All are
   readable from other sites (CORS allowed) and cached briefly.
+- **Markdown copies.** Each page has a copy at the same address with `.md`
+  added (`index.md`, `history.md`, `incidents/{id}.md`), linked from the
+  page with `<link rel="alternate" type="text/markdown">`. The bars become
+  a line of symbols with a legend in words (`+` Operational, `~` Degraded,
+  `x` Outage, `=` Maintenance, `.` No data). Agents and scripts read them
+  without parsing HTML, and static hosts serve them as plain files.
+- `llms.txt` lists the pages, their Markdown copies, the JSON files and the
+  feeds, each with one line on what it holds.
 
 ## Accessibility
 
