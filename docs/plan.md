@@ -36,13 +36,15 @@ Update this section in the same commit as the work it describes.
   confirmation, degraded and recovery rules as a pure `judge`; incidents
   with first failures per region; alerts on open and recovery;
   `public/status.json`. Tested with recorded results.
+- Heartbeats (`packages/core/src/heartbeat.ts`): `handle` records success
+  and failure pings; `decide` judges them and alerts on a miss or a
+  failure. Tested.
 
 **Next, in order:**
 
-1. `handle` for heartbeats, and judging heartbeats in `decide`.
-2. The rest of `adapter-container`, then `examples/local`: the first thing
+1. The rest of `adapter-container`, then `examples/local`: the first thing
    that runs end to end.
-3. `adapter-aws` and `examples/aws-sam`.
+2. `adapter-aws` and `examples/aws-sam`.
 
 Phase 1's done-when checks are below. Things built but not yet tried for
 real go in [untested.md](untested.md).

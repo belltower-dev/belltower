@@ -1,5 +1,6 @@
 import { resultsKey, RESULTS_FORMAT, type CheckResult, type ResultsFile } from "./check.ts"
-import type { Config, HttpCheck, Thresholds } from "./config.ts"
+import type { Check, Config, HeartbeatCheck, HttpCheck, Thresholds } from "./config.ts"
+import { heartbeatKey, judgeHeartbeat, type HeartbeatRecord } from "./heartbeat.ts"
 import type { Alert, AlertLevel, Clock, HttpTiming, Notifier, Store } from "./ports.ts"
 
 /*
@@ -16,7 +17,7 @@ export const DECIDE_STATE_FORMAT = "belltower.decide/1"
 export const DECIDE_STATE_KEY = "state/decide.json"
 export const STATUS_KEY = "public/status.json"
 
-export type CheckState = "up" | "degraded" | "down"
+export type CheckState = "up" | "degraded" | "down" | "pending"
 
 /** One minute of one check: each region that reported it, and its result. */
 export type Sample = Readonly<Record<string, CheckResult>>
@@ -83,6 +84,8 @@ export interface Incident {
   /** The first passing minute of the recovery. */
   endedAt?: string
   resolvedAt?: string
+  /** What happened, in words. */
+  summary: string
   regions: string[]
   /** From the first failure in each region. */
   firstFailures: Record<string, FirstFailure>
@@ -142,26 +145,46 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
   for (const [region, ids] of Object.entries(byRegion)) for (const id of ids) runners.set(id, [...(runners.get(id) ?? []), region])
 
   const componentCritical = new Set(config.components.filter((c) => c.critical).map((c) => c.name))
-  const checks = config.checks.filter((c): c is HttpCheck => c.type === "http")
+  const levelFor = (check: Check): AlertLevel =>
+    check.severity === "critical" || componentCritical.has(check.component) ? "critical" : "alert"
 
-  for (const check of checks) {
-    const regions = runners.get(check.id) ?? []
-    const samples = minutes.map((m) => sampleFor(files, regions, m, check.id))
+  for (const check of config.checks) {
     const openId = state.open[check.id]
-    const verdict = judge(samples, regions.length, t, openId !== undefined)
-    report.states[check.id] = verdict.state
-    const level: AlertLevel = check.severity === "critical" || componentCritical.has(check.component) ? "critical" : "alert"
+    let change: { opened: Incident } | { endedAt: Date } | null = null
 
-    if (openId === undefined && verdict.state === "down" && verdict.since !== null) {
-      const incident = openIncident(check, level, samples.slice(verdict.since), minutes.slice(verdict.since), now)
+    if (check.type === "http") {
+      const regions = runners.get(check.id) ?? []
+      const samples = minutes.map((m) => sampleFor(files, regions, m, check.id))
+      const verdict = judge(samples, regions.length, t, openId !== undefined)
+      report.states[check.id] = verdict.state
+      if (openId === undefined && verdict.state === "down" && verdict.since !== null) {
+        change = { opened: httpIncident(check, levelFor(check), samples.slice(verdict.since), minutes.slice(verdict.since), now) }
+      } else if (openId !== undefined && verdict.state !== "down" && verdict.since !== null) {
+        change = { endedAt: minutes[verdict.since] ?? now }
+      }
+    } else if (check.type === "heartbeat") {
+      const record = await readJson<HeartbeatRecord>(store, heartbeatKey(check.id))
+      const verdict = judgeHeartbeat(check, record, now)
+      report.states[check.id] = verdict.state
+      if (openId === undefined && verdict.state === "down" && verdict.since) {
+        change = { opened: heartbeatIncident(check, levelFor(check), verdict.since, verdict.reason ?? "", now) }
+      } else if (openId !== undefined && verdict.state === "up") {
+        change = { endedAt: new Date(record?.lastSuccess ?? now) }
+      }
+    } else {
+      continue
+    }
+
+    if (change && "opened" in change) {
+      const incident = change.opened
       await store.put(incidentKey(incident.id), JSON.stringify(incident), { contentType: "application/json" })
       await send(deps.notifiers, downAlert(incident, check), problems)
       state.open[check.id] = incident.id
       report.opened.push(incident)
-    } else if (openId !== undefined && verdict.state !== "down" && verdict.since !== null) {
-      const incident = await readIncident(store, openId)
+    } else if (change && openId !== undefined) {
+      const incident = await readJson<Incident>(store, incidentKey(openId))
       if (incident) {
-        incident.endedAt = (minutes[verdict.since] ?? now).toISOString()
+        incident.endedAt = change.endedAt.toISOString()
         incident.resolvedAt = now.toISOString()
         await store.put(incidentKey(incident.id), JSON.stringify(incident), { contentType: "application/json" })
         await send(deps.notifiers, recoveryAlert(incident, check), problems)
@@ -174,7 +197,7 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
   }
 
   await store.put(DECIDE_STATE_KEY, JSON.stringify(state), { contentType: "application/json" })
-  const openIncidents = await Promise.all(Object.values(state.open).map((id) => readIncident(store, id)))
+  const openIncidents = await Promise.all(Object.values(state.open).map((id) => readJson<Incident>(store, incidentKey(id))))
   await store.put(STATUS_KEY, JSON.stringify(publicStatus(config, report.states, openIncidents, now)), { contentType: "application/json" })
   return report
 }
@@ -227,16 +250,35 @@ async function readState(store: Store): Promise<DecideState> {
   return parsed
 }
 
-async function readIncident(store: Store, id: string): Promise<Incident | null> {
-  const text = await store.get(incidentKey(id))
-  return text === null ? null : (JSON.parse(text) as Incident)
+async function readJson<T>(store: Store, key: string): Promise<T | null> {
+  const text = await store.get(key)
+  return text === null ? null : (JSON.parse(text) as T)
 }
 
 export function incidentKey(id: string): string {
   return `incidents/${id}.json`
 }
 
-function openIncident(check: HttpCheck, level: AlertLevel, samples: readonly Sample[], minutes: readonly Date[], now: Date): Incident {
+function incidentId(checkId: string, start: Date): string {
+  return `${checkId}-${start.toISOString().slice(0, 16).replace(/[-T:]/g, "")}`
+}
+
+function heartbeatIncident(check: HeartbeatCheck, level: AlertLevel, since: Date, summary: string, now: Date): Incident {
+  return {
+    format: INCIDENT_FORMAT,
+    id: incidentId(check.id, since),
+    check: check.id,
+    component: check.component,
+    level,
+    startedAt: since.toISOString(),
+    detectedAt: now.toISOString(),
+    summary,
+    regions: [],
+    firstFailures: {},
+  }
+}
+
+function httpIncident(check: HttpCheck, level: AlertLevel, samples: readonly Sample[], minutes: readonly Date[], now: Date): Incident {
   const start = minutes[0] ?? now
   const firstFailures: Record<string, FirstFailure> = {}
   samples.forEach((sample, i) => {
@@ -253,16 +295,18 @@ function openIncident(check: HttpCheck, level: AlertLevel, samples: readonly Sam
       }
     }
   })
-  const stamp = start.toISOString().slice(0, 16).replace(/[-T:]/g, "")
+  const regions = Object.keys(firstFailures).sort()
+  const reasons = [...new Set(Object.values(firstFailures).map((f) => f.message).filter((m) => m !== undefined))]
   return {
     format: INCIDENT_FORMAT,
-    id: `${check.id}-${stamp}`,
+    id: incidentId(check.id, start),
     check: check.id,
     component: check.component,
     level,
     startedAt: start.toISOString(),
     detectedAt: now.toISOString(),
-    regions: Object.keys(firstFailures).sort(),
+    summary: [`${check.id} has failed in ${regions.join(", ")} since ${hhmm(start.toISOString())}.`, ...reasons].join("\n"),
+    regions,
     firstFailures,
   }
 }
@@ -271,21 +315,15 @@ function hhmm(iso: string): string {
   return `${iso.slice(11, 16)} UTC`
 }
 
-function downAlert(incident: Incident, check: HttpCheck): Alert {
-  const reasons = [...new Set(Object.values(incident.firstFailures).map((f) => f.message).filter((m) => m !== undefined))]
+function downAlert(incident: Incident, check: Check): Alert {
   return {
     level: incident.level,
     title: `Down: ${check.id} (${check.component})`,
-    text: [
-      `${check.id} has failed in ${incident.regions.join(", ")} since ${hhmm(incident.startedAt)}.`,
-      ...reasons,
-      `URL: ${check.url}`,
-      "Belltower will send another alert when it recovers.",
-    ].join("\n"),
+    text: [incident.summary, ...(check.type === "http" ? [`URL: ${check.url}`] : []), "Belltower will send another alert when it recovers."].join("\n"),
   }
 }
 
-function recoveryAlert(incident: Incident, check: HttpCheck): Alert {
+function recoveryAlert(incident: Incident, check: Check): Alert {
   const end = incident.endedAt ?? incident.resolvedAt ?? incident.startedAt
   const minutes = Math.max(1, Math.round((Date.parse(end) - Date.parse(incident.startedAt)) / MINUTE))
   return {

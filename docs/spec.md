@@ -214,9 +214,21 @@ For scheduled jobs: a URL check can't see a job that stopped.
 | `token` | Name of the secret holding the secret part of the ping URL |
 
 - The job calls `GET {handle}/hb/{token}` when it succeeds and
-  `/hb/{token}/fail` when it fails.
-- Down when no success arrives within period plus grace, or a `/fail`
-  arrives. Up again on the next success.
+  `/hb/{token}/fail` when it fails. `HEAD` and `POST` work too, and the path
+  can sit under any prefix (`/belltower/hb/{token}`). A success can carry
+  `?run={id}` for the email round trip.
+- `handle()` answers `200` with a line of plain text naming the check, `404`
+  for a token no heartbeat has, and `405` for other methods. It never echoes
+  the token, and compares tokens in time that doesn't reveal a near match.
+- Each ping updates `heartbeats/{id}.json`: the last success, the last
+  failure and the last run ID.
+- Down when no success arrives within period plus grace (the incident starts
+  at the moment it was due), or a `/fail` newer than the last success
+  arrives. Up again on the next success, with no waiting period.
+- `decide()` judges heartbeats every minute, so a miss alerts within a
+  minute of period plus grace, and a `/fail` on the next run.
+- A heartbeat that has never pinged is `pending`: no alert, and Operational
+  on the status page.
 - States: `pending` (no ping yet), `up`, `down`, `maintenance`, `paused`.
 - A failed ping must never fail the job that sends it.
 
