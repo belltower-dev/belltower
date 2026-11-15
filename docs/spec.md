@@ -393,6 +393,10 @@ The copy is done; switching over now.
   Stages are Investigating, Identified, Monitoring, Resolved and Update;
   without one, an update is an Update. The text before the first update
   is the summary.
+- An update's first line can name components and their states:
+  `Components: API (Degraded performance), Website (Operational)`. The
+  states are the five component states; the components must be in the
+  config.
 - The note's id is its file name without `.md`.
 
 `belltower notes push --dir <folder>` checks every note against the config
@@ -414,9 +418,9 @@ of the last build; with it, the status page refreshes from
 
 | Page | Shows |
 | --- | --- |
-| Status | The overall status line with "Last updated" and its time; current notices; open incidents and maintenance in progress; components in their groups, each with its state, 90-day bars and response time |
+| Status | The overall status line with "Last updated" and its time; current notices; open incidents and maintenance in progress; components in their groups, each with its state, 90-day bars and response time; "Checked from", the regions checks run in |
 | Maintenance | Upcoming and current maintenance |
-| History | Every day of the last 90, newest first, under a heading for each month and one for each day with its count of incidents; each day lists its incidents and maintenance, or "No incidents reported" on a quiet day ("No incidents reported today" for today) |
+| History | Every day of the last 90, newest first, under a heading for each month and one for each day with its count of incidents; each day lists its incidents and maintenance, or "No incidents reported" on a quiet day ("No incidents reported today" for today). Then an event log: every update of every incident and maintenance in those 90 days in one list, newest first, each with its time, stage and a link to its incident. A link at the top of the page goes straight to the log |
 | One per incident | A permanent address: title, stage, impact, duration, components affected, and every update with its stage and time |
 
 Plus `feed.atom`, `feed.rss` and `feed.json` (JSON Feed) of incidents and
@@ -473,8 +477,23 @@ Degraded performance, Maintenance, Operational.
   named for context only.
 - **Updates** newest first, each with its stage and time.
 - **Duration** from start to end, or "Ongoing".
+- **Age:** with JavaScript, each incident's date is followed by its age
+  ("9 days ago"), worked out in the browser so it's never stale. Without
+  JavaScript the date stands alone.
+- **Component states per update:** an update can name the components it
+  affects and their state at that time, such as "API: Degraded
+  performance", so the page shows how an incident moved.
 - A detected incident with no note shows as "Detected outage", with the
   checks' components and the time it began.
+
+### Checked from
+
+A section on the Status page lists the regions checks run from, each with
+whether it's writing results: "Writing results" when its last results
+file is under five minutes old, otherwise "No results since {time}".
+Visitors see where checks run, and a stalled region is visible to
+everyone, the deployment included. `decide()` records each region's last
+results time in `public/status.json`.
 
 ### Times
 
@@ -635,8 +654,9 @@ published with `@belltower/core`. They change compatibly within a major
 version: fields are only added. A test checks real output against them.
 
 `public/status.json` is written from an allowlist: the time it was written,
-the overall state, each component's name and state, and the open incidents
-(id, component, start). Only public checks count toward it. Nothing else
+the overall state, each component's name and state, the open incidents
+(id, component, start), and each region's name and the time of its last
+results. Only public checks count toward it. Nothing else
 from the config, the results or the incidents is copied into it.
 
 ## The command line

@@ -81,8 +81,9 @@ real AWS deployment of `examples/aws-sam`.
    `critical` in the config and one-incident-per-check in `decide`.
 3. What the status page reads: five component states, component groups,
    descriptions and links, the `page` config with its branding, update
-   stages, impact and notices in notes, a response-time aggregate that
-   also counts degraded minutes per day, `summary.json` and the feeds.
+   stages, impact, notices and component states in notes, each region's
+   last results time in `status.json`, a response-time aggregate that also
+   counts degraded minutes per day, `summary.json` and the feeds.
 4. `buildPage()`, following the spec's "Status page". Its design is shared
    for review before it's built.
 

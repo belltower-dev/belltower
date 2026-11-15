@@ -285,18 +285,6 @@ protected against bots without a visual puzzle (puzzles fail accessibility).
   read status without parsing HTML (requirement 10). A JSON Feed beside
   Atom and RSS.
 
-**Proposed, not yet decided**
-
-- Each incident update names the components it affects and their state at
-  that time, such as "API (Degraded performance)", so the page shows how
-  an incident moved.
-- A "Checked from" section listing the regions, each with whether it wrote
-  results in the last few minutes. Visitors see where checks run, and a
-  stalled region is visible.
-- An event log on History: every update of every incident in one list,
-  newest first, with its time, stage and incident.
-- The age of each incident beside its date ("9 days ago").
-
 **Later**
 
 - A hub page listing several products' status pages, for deployments with
