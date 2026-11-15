@@ -1,0 +1,22 @@
+{
+  "name": "@belltower/core",
+  "version": "0.0.0",
+  "description": "Belltower's platform-free core: checks, decisions, heartbeats, availability",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acrstatus/belltower.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/acrstatus/belltower",
+  "bugs": {
+    "url": "https://github.com/acrstatus/belltower/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ]
+}

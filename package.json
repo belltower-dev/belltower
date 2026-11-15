@@ -1,0 +1,27 @@
+{
+  "name": "belltower",
+  "private": true,
+  "description": "Open-source uptime monitor and status page for any serverless platform",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acrstatus/belltower.git"
+  },
+  "homepage": "https://github.com/acrstatus/belltower",
+  "bugs": {
+    "url": "https://github.com/acrstatus/belltower/issues"
+  },
+  "type": "module",
+  "packageManager": "pnpm@12.10.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p packages/core"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}
