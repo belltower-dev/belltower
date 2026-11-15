@@ -21,19 +21,19 @@ Update this section in the same commit as the work it describes.
 - `assignChecks` (`packages/core/src/capabilities.ts`): checks go to the
   regions that can run them; configs no region can run are refused with a
   fix. Tested.
+- `validateConfig` (`packages/core/src/config.ts`): every check type's
+  fields and defaults, components, notifiers and thresholds; errors name the
+  field and suggest typos; calls `assignChecks`. Tested.
 
 **Next, in order:**
 
-1. Config schema and validation (`config.ts`): the check fields in the
-   spec's "Checks" table with their defaults, components, regions,
-   thresholds, notifiers; errors that name the field. Calls `assignChecks`.
-2. `runChecks` for HTTP checks, with a fake `fetch` in tests.
-3. The local-folder Store and the Store contract suite.
-4. `decide` and its rules, pure and tested with recorded results.
-5. `handle` for heartbeats.
-6. `adapter-container`, then `examples/local`: the first thing that runs
+1. `runChecks` for HTTP checks, with a fake `fetch` in tests.
+2. The local-folder Store and the Store contract suite.
+3. `decide` and its rules, pure and tested with recorded results.
+4. `handle` for heartbeats.
+5. `adapter-container`, then `examples/local`: the first thing that runs
    end to end.
-7. `adapter-aws` and `examples/aws-sam`.
+6. `adapter-aws` and `examples/aws-sam`.
 
 Phase 1's done-when checks are below. Things built but not yet tried for
 real go in [untested.md](untested.md).

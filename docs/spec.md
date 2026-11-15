@@ -132,6 +132,41 @@ A deployment's config lists checks:
 Checks send the user agent `Belltower/<version>` so the watched service
 can leave them out of its analytics and rate limits.
 
+`expectStatus` takes codes and classes: `204`, `"2xx"`, or a list such as
+`["2xx", 304]`. Durations (`period`, `grace`, `within`, `schedule`) are
+written as `"30s"`, `"15m"`, `"1h"`, `"1d"`, `"daily"` or `"hourly"`, or as a
+whole number of seconds.
+
+### The rest of the config
+
+Besides `checks`, a config has:
+
+| Section | Fields | Default |
+| --- | --- | --- |
+| `components` | `name`; `critical` (down alerts for its checks also go by SMS) | `critical: false` |
+| `notifiers` | `id`; `type` (`email`, `sms`, `webhook`); `to` (email addresses, or phone numbers in international format such as `+15555550100`); `secret` (webhook only: the name of the secret holding the URL); `levels` | `levels`: `warn`, `alert`, `critical`, or only `critical` for SMS |
+| `thresholds` | `confirmRegions`, `confirmMinutes`, `degradedMinutes`, `recoverRegions`, `recoverMinutes`, `repeatAlertMinutes` | 2, 2, 5, 2, 3, 30 (see "Deciding that something is down") |
+
+The adapter supplies the regions and what each can do; the config names
+regions only to limit a check to some of them.
+
+### Validation
+
+`validateConfig(config, regions)` runs at deploy and refuses a config with
+any of these, listing every error at once with the field it's about:
+
+- A missing required field, a value of the wrong kind, or a field the check
+  type doesn't have. A likely typo gets a suggestion (`expectKeywords`:
+  "Did you mean expectKeyword?").
+- A check, component or notifier `id` used twice, or an `id` that isn't
+  lowercase letters, digits, `-` and `_` (ids appear in storage keys).
+- A check whose `component` isn't in `components`.
+- `slowSeconds` at or above `timeoutSeconds`, `alertDays` above `warnDays`,
+  or a body on a `GET` or `HEAD`.
+- A critical check or component with no `sms` notifier, or an `sms` notifier
+  when no region's adapter can send SMS.
+- A check no region can run ("Capabilities").
+
 ### HTTP
 
 - **Fails when** the request errors, times out, returns a status outside
@@ -147,9 +182,9 @@ For scheduled jobs: a URL check can't see a job that stopped.
 
 | Field | Meaning |
 | --- | --- |
-| `period` | How often a success is expected |
-| `grace` | Extra time before a missing success counts as down |
-| `token` | Secret part of the ping URL |
+| `period` | How often a success is expected. Required |
+| `grace` | Extra time before a missing success counts as down. Default 5 minutes |
+| `token` | Name of the secret holding the secret part of the ping URL |
 
 - The job calls `GET {handle}/hb/{token}` when it succeeds and
   `/hb/{token}/fail` when it fails.
@@ -165,8 +200,9 @@ For services that send email: a delivery problem never shows on a web check.
 - The watched service sends a message to an address the inbox port can read,
   with a run ID, on a schedule.
 - The service also sends its heartbeat with the same run ID.
-- Down when the message hasn't arrived a set time (default 30 minutes) after
-  that heartbeat.
+- Down when the message hasn't arrived a set time (`within`, default 30
+  minutes) after that heartbeat. The check's `heartbeat` field names that
+  heartbeat check.
 - Needs the Inbox port; off without one.
 
 ### Certificates and domains

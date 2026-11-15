@@ -41,7 +41,7 @@ in days. Whichever is reached first applies.
 | `renewWithin` | Warn when less than this fraction of the lifetime remains: renewal should have happened | `1/3` |
 | `warnDays` | Warn when fewer days remain, whatever the lifetime | 14 |
 | `alertDays` | Alert when fewer days remain | 7 |
-| `region` | Which region runs it (must support the TLS inspector) | the first that does |
+| `regions` | Which regions may run it (one must support the TLS inspector); it runs in the first that does | all |
 | `schedule` | How often | daily |
 
 Use `addresses: all` behind load balancers or several origins. Each address

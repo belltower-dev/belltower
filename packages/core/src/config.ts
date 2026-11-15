@@ -1,0 +1,625 @@
+import { assignChecks, type CheckType, type Region } from "./capabilities.ts"
+import type { AlertLevel } from "./ports.ts"
+
+/*
+ * The deployment's config (docs/spec.md, "Checks", "The rest of the config"
+ * and "Validation"): checks, components, notifiers and thresholds. `validateConfig` fills in defaults,
+ * names the field behind every error, and assigns checks to regions.
+ */
+
+export type Severity = "normal" | "critical"
+
+interface CheckBase {
+  id: string
+  component: string
+  /** Regions named in config; every region when absent. */
+  regions?: readonly string[]
+  severity: Severity
+  public: boolean
+}
+
+/** An inclusive range of HTTP status codes. */
+export interface StatusRange {
+  min: number
+  max: number
+}
+
+export interface HttpCheck extends CheckBase {
+  type: "http"
+  url: string
+  method: string
+  headers: Readonly<Record<string, string>>
+  body?: string
+  /** Name of the secret holding `user:password`. */
+  basicAuth?: string
+  expectStatus: readonly StatusRange[]
+  expectKeyword?: string
+  rejectKeyword?: string
+  timeoutSeconds: number
+  slowSeconds: number
+  followRedirects: boolean
+  verifyTls: boolean
+}
+
+export interface HeartbeatCheck extends CheckBase {
+  type: "heartbeat"
+  /** Seconds between expected successes. */
+  period: number
+  /** Extra seconds before a missing success counts as down. */
+  grace: number
+  /** Name of the secret holding the ping URL's token. */
+  token: string
+}
+
+export interface EmailCheck extends CheckBase {
+  type: "email"
+  /** The heartbeat check that carries the run ID. */
+  heartbeat: string
+  /** Seconds after that heartbeat by which the message must arrive. */
+  within: number
+}
+
+export interface TlsCheck extends CheckBase {
+  type: "tls"
+  host: string
+  port: number
+  servername: string
+  addresses: "first" | "all"
+  /** Fraction of the lifetime left below which renewal is overdue. */
+  renewWithin: number
+  warnDays: number
+  alertDays: number
+  /** Seconds between inspections. */
+  schedule: number
+}
+
+export interface DomainCheck extends CheckBase {
+  type: "domain"
+  domain: string
+  warnDays: number
+  alertDays: number
+  /** Seconds between lookups. */
+  schedule: number
+}
+
+export type Check = HttpCheck | HeartbeatCheck | EmailCheck | TlsCheck | DomainCheck
+
+export interface Component {
+  name: string
+  /** Down alerts for any check in this component also go by SMS. */
+  critical: boolean
+}
+
+interface NotifierBase {
+  id: string
+  levels: readonly AlertLevel[]
+}
+
+export type NotifierConfig =
+  | (NotifierBase & { type: "email"; to: readonly string[] })
+  | (NotifierBase & { type: "sms"; to: readonly string[] })
+  | (NotifierBase & { type: "webhook"; /** Name of the secret holding the URL. */ secret: string })
+
+export interface Thresholds {
+  /** Regions that must fail the same check for it to count as down. */
+  confirmRegions: number
+  /** Consecutive failing minutes before it counts as down. */
+  confirmMinutes: number
+  /** Consecutive slow minutes before it counts as degraded. */
+  degradedMinutes: number
+  /** Regions that must pass for it to count as recovered. */
+  recoverRegions: number
+  /** Consecutive passing minutes before it counts as recovered. */
+  recoverMinutes: number
+  /** Minutes between repeats of an unacknowledged down alert. */
+  repeatAlertMinutes: number
+}
+
+export interface Config {
+  components: readonly Component[]
+  checks: readonly Check[]
+  notifiers: readonly NotifierConfig[]
+  thresholds: Thresholds
+}
+
+export type ConfigResult =
+  | { ok: true; config: Config; byRegion: Record<string, string[]> }
+  | { ok: false; errors: string[] }
+
+export const DEFAULT_THRESHOLDS: Thresholds = {
+  confirmRegions: 2,
+  confirmMinutes: 2,
+  degradedMinutes: 5,
+  recoverRegions: 2,
+  recoverMinutes: 3,
+  repeatAlertMinutes: 30,
+}
+
+const CHECK_TYPES: readonly CheckType[] = ["http", "heartbeat", "email", "tls", "domain"]
+const ALERT_LEVELS: readonly AlertLevel[] = ["info", "warn", "alert", "critical"]
+const METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+const ID = /^[a-z0-9][a-z0-9_-]*$/
+const HOST = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i
+const PHONE = /^\+[1-9][0-9]{6,14}$/
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const DURATION = /^([0-9]+)(s|m|h|d)$/
+const UNIT_SECONDS = { s: 1, m: 60, h: 3600, d: 86400 } as const
+
+/** Validates a parsed config against the regions the adapter declares. */
+export function validateConfig(input: unknown, regions: readonly Region[]): ConfigResult {
+  const errors: string[] = []
+  if (!regions.length) errors.push("No regions are declared. The adapter must supply at least one region.")
+
+  if (!isRecord(input)) return { ok: false, errors: [...errors, "The config must be an object with components, checks and notifiers."] }
+  const root = new Fields(input, "", errors, ["components", "checks", "notifiers", "thresholds"])
+
+  const components = list(root, "components", "add at least one component.", (f) => readComponent(f))
+  const notifiers = list(root, "notifiers", "add at least one notifier, or no alert can be sent.", (f) => readNotifier(f))
+  const checks = list(root, "checks", "add at least one check.", (f) => readCheck(f))
+  const thresholds = readThresholds(root)
+  root.finish()
+
+  unique(components, (c) => c.name, "components", "name", errors)
+  unique(notifiers, (n) => n.id, "notifiers", "id", errors)
+  unique(checks, (c) => c.id, "checks", "id", errors)
+
+  const componentNames = new Set(components.map((c) => c.name))
+  const byId = new Map(checks.map((c) => [c.id, c]))
+  for (const check of checks) {
+    if (!componentNames.has(check.component)) {
+      errors.push(`${label(check)}.component: "${check.component}" isn't in components. Add it there, or use one of: ${[...componentNames].join(", ") || "(none)"}.`)
+    }
+    if (check.type === "email") {
+      const hb = byId.get(check.heartbeat)
+      if (!hb) errors.push(`${label(check)}.heartbeat: no check has the id "${check.heartbeat}". Name the heartbeat check that carries the run ID.`)
+      else if (hb.type !== "heartbeat") errors.push(`${label(check)}.heartbeat: "${check.heartbeat}" is a ${hb.type} check. Name a heartbeat check.`)
+    }
+  }
+
+  const hasSms = notifiers.some((n) => n.type === "sms")
+  if (hasSms && regions.length && !regions.some((r) => r.capabilities.sms)) {
+    errors.push("notifiers: an sms notifier is configured, but no region's adapter can send SMS. Run decide() on an adapter that can (aws), or remove the sms notifier.")
+  }
+  if (!hasSms && notifiers.length) {
+    for (const check of checks) {
+      if (check.severity === "critical") {
+        errors.push(`${label(check)}.severity: critical checks also alert by SMS, and no sms notifier is configured. Add an sms notifier, or set severity to "normal".`)
+      }
+    }
+    for (const component of components) {
+      if (component.critical) {
+        errors.push(`components (${component.name}).critical: critical components also alert by SMS, and no sms notifier is configured. Add an sms notifier, or set critical to false.`)
+      }
+    }
+  }
+
+  if (errors.length) return { ok: false, errors }
+
+  const assignment = assignChecks(checks, regions)
+  if (!assignment.ok) return { ok: false, errors: assignment.errors }
+  return { ok: true, config: { components, checks, notifiers, thresholds }, byRegion: assignment.byRegion }
+}
+
+function readComponent(f: Fields): Component | null {
+  const name = f.string("name", { required: true })
+  const critical = f.boolean("critical", false)
+  f.finish()
+  return name === undefined ? null : { name, critical }
+}
+
+function readNotifier(f: Fields): NotifierConfig | null {
+  const id = f.id()
+  const type = f.oneOf("type", ["email", "sms", "webhook"] as const, { required: true })
+  if (type === undefined) return null
+  const defaultLevels: readonly AlertLevel[] = type === "sms" ? ["critical"] : ["warn", "alert", "critical"]
+  const levels = f.stringList("levels", { allowed: ALERT_LEVELS }) ?? defaultLevels
+  let result: NotifierConfig | null = null
+  if (type === "webhook") {
+    const secret = f.string("secret", { required: true, hint: "the name of the secret holding the webhook URL" })
+    if (id !== undefined && secret !== undefined) result = { id, type, levels, secret }
+  } else {
+    const pattern = type === "email" ? EMAIL : PHONE
+    const what = type === "email" ? "an email address" : "a phone number in international format, such as +15555550100"
+    const to = f.stringList("to", { required: true, pattern, what })
+    if (to && !to.length) f.error("to", "add at least one recipient.")
+    if (id !== undefined && to?.length) result = { id, type, levels, to }
+  }
+  f.finish()
+  return result
+}
+
+function readThresholds(root: Fields): Thresholds {
+  const raw = root.raw("thresholds")
+  if (raw === undefined) return DEFAULT_THRESHOLDS
+  if (!isRecord(raw)) {
+    root.error("thresholds", "must be an object.")
+    return DEFAULT_THRESHOLDS
+  }
+  const f = new Fields(raw, "thresholds", root.errors, Object.keys(DEFAULT_THRESHOLDS))
+  const t = { ...DEFAULT_THRESHOLDS }
+  for (const key of Object.keys(DEFAULT_THRESHOLDS) as (keyof Thresholds)[]) {
+    t[key] = f.integer(key, DEFAULT_THRESHOLDS[key], { min: 1 })
+  }
+  f.finish()
+  return t
+}
+
+function readCheck(f: Fields): Check | null {
+  const id = f.id()
+  const type = f.oneOf("type", CHECK_TYPES, { required: true })
+  const component = f.string("component", { required: true })
+  const regions = f.stringList("regions")
+  if (regions && !regions.length) f.error("regions", "add at least one region, or leave regions out to run in every region.")
+  const severity = f.oneOf("severity", ["normal", "critical"] as const) ?? "normal"
+  const isPublic = f.boolean("public", true)
+  if (type === undefined) {
+    f.finish({ skipUnknown: true })
+    return null
+  }
+
+  const base = { severity, public: isPublic, ...(regions?.length ? { regions: [...new Set(regions)] } : {}) }
+  let check: Check | null = null
+  switch (type) {
+    case "http":
+      check = readHttp(f, base)
+      break
+    case "heartbeat": {
+      const period = f.duration("period", undefined, { required: true })
+      const grace = f.duration("grace", 300)
+      const token = f.string("token", { required: true, hint: "the name of the secret holding the ping URL's token" })
+      if (period !== undefined && token !== undefined) check = { ...base, type, id: "", component: "", period, grace, token }
+      break
+    }
+    case "email": {
+      const heartbeat = f.string("heartbeat", { required: true, hint: "the id of the heartbeat check that carries the run ID" })
+      const within = f.duration("within", 1800)
+      if (heartbeat !== undefined) check = { ...base, type, id: "", component: "", heartbeat, within }
+      break
+    }
+    case "tls": {
+      const host = f.host("host")
+      const port = f.integer("port", 443, { min: 1, max: 65535 })
+      // Without a valid host there's no default to fall back on; host already has its error.
+      const servername = host !== undefined || f.has("servername") ? f.host("servername", host) : (f.raw("servername"), undefined)
+      const addresses = f.oneOf("addresses", ["first", "all"] as const) ?? "first"
+      const renewWithin = f.fraction("renewWithin", 1 / 3)
+      const { warnDays, alertDays } = expiryDays(f, 14, 7)
+      const schedule = f.duration("schedule", 86400)
+      if (host !== undefined && servername !== undefined) {
+        check = { ...base, type, id: "", component: "", host, port, servername, addresses, renewWithin, warnDays, alertDays, schedule }
+      }
+      break
+    }
+    case "domain": {
+      const domain = f.host("domain")
+      const { warnDays, alertDays } = expiryDays(f, 30, 14)
+      const schedule = f.duration("schedule", 86400)
+      if (domain !== undefined) check = { ...base, type, id: "", component: "", domain, warnDays, alertDays, schedule }
+      break
+    }
+  }
+  f.finish()
+  if (!check || id === undefined || component === undefined) return null
+  check.id = id
+  check.component = component
+  return check
+}
+
+function readHttp(f: Fields, base: Pick<CheckBase, "severity" | "public" | "regions">): HttpCheck | null {
+  const url = f.url("url")
+  const method = f.oneOf("method", METHODS, { transform: (s) => s.toUpperCase() }) ?? "GET"
+  const headers = f.stringRecord("headers")
+  const body = f.string("body")
+  if (body !== undefined && (method === "GET" || method === "HEAD")) f.error("body", `a ${method} request can't have a body. Remove body, or set method to POST.`)
+  const basicAuth = f.string("basicAuth", { hint: "the name of the secret holding user:password" })
+  const expectStatus = f.statusRanges("expectStatus")
+  const expectKeyword = f.string("expectKeyword")
+  const rejectKeyword = f.string("rejectKeyword")
+  const timeoutSeconds = f.number("timeoutSeconds", 10, { above: 0 })
+  const slowSeconds = f.number("slowSeconds", 5, { above: 0 })
+  if (slowSeconds >= timeoutSeconds) {
+    f.error("slowSeconds", `must be less than timeoutSeconds (${timeoutSeconds}), or a slow response would time out before it counts as slow.`)
+  }
+  const followRedirects = f.boolean("followRedirects", true)
+  const verifyTls = f.boolean("verifyTls", true)
+  if (url === undefined) return null
+  return {
+    ...base,
+    type: "http",
+    id: "",
+    component: "",
+    url,
+    method,
+    headers,
+    expectStatus,
+    timeoutSeconds,
+    slowSeconds,
+    followRedirects,
+    verifyTls,
+    ...(body !== undefined ? { body } : {}),
+    ...(basicAuth !== undefined ? { basicAuth } : {}),
+    ...(expectKeyword !== undefined ? { expectKeyword } : {}),
+    ...(rejectKeyword !== undefined ? { rejectKeyword } : {}),
+  }
+}
+
+function expiryDays(f: Fields, warnDefault: number, alertDefault: number) {
+  const warnDays = f.integer("warnDays", warnDefault, { min: 1 })
+  const alertDays = f.integer("alertDays", alertDefault, { min: 1 })
+  if (alertDays > warnDays) f.error("alertDays", `must not be more than warnDays (${warnDays}), or the warning would come after the alert.`)
+  return { warnDays, alertDays }
+}
+
+function list<T>(root: Fields, key: string, empty: string, read: (f: Fields) => T | null): T[] {
+  const raw = root.raw(key)
+  if (raw === undefined) {
+    root.error(key, "is required.")
+    return []
+  }
+  if (!Array.isArray(raw)) {
+    root.error(key, "must be a list.")
+    return []
+  }
+  if (!raw.length) root.error(key, empty)
+  const out: T[] = []
+  raw.forEach((item: unknown, i) => {
+    const name = isRecord(item) && typeof (item.id ?? item.name) === "string" ? ` (${String(item.id ?? item.name)})` : ""
+    const path = `${key}[${i}]${name}`
+    if (!isRecord(item)) {
+      root.errors.push(`${path}: must be an object.`)
+      return
+    }
+    const value = read(new Fields(item, path, root.errors))
+    if (value !== null) out.push(value)
+  })
+  return out
+}
+
+function unique<T>(items: readonly T[], key: (t: T) => string, section: string, field: string, errors: string[]) {
+  const seen = new Set<string>()
+  for (const item of items) {
+    const k = key(item)
+    if (seen.has(k)) errors.push(`${section}: two entries have the ${field} "${k}". Each ${field} must be unique.`)
+    seen.add(k)
+  }
+}
+
+function label(check: Check): string {
+  return `checks (${check.id})`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function show(value: unknown): string {
+  return typeof value === "string" ? `"${value}"` : JSON.stringify(value) ?? String(value)
+}
+
+/** Reads one object's fields, recording an error that names each bad one. */
+class Fields {
+  private readonly read = new Set<string>()
+
+  constructor(
+    private readonly obj: Record<string, unknown>,
+    private readonly path: string,
+    readonly errors: string[],
+    /** Keys accepted beyond those read, for typo suggestions. */
+    private readonly known: readonly string[] = [],
+  ) {}
+
+  has(key: string): boolean {
+    return this.obj[key] !== undefined
+  }
+
+  raw(key: string): unknown {
+    this.read.add(key)
+    return this.obj[key]
+  }
+
+  error(key: string, message: string) {
+    this.errors.push(`${this.path ? `${this.path}.` : ""}${key}: ${message}`)
+  }
+
+  private missing(key: string, hint?: string) {
+    this.error(key, hint ? `is required: ${hint}.` : "is required.")
+  }
+
+  id(): string | undefined {
+    const value = this.string("id", { required: true })
+    if (value !== undefined && !ID.test(value)) {
+      this.error("id", `${show(value)} must use lowercase letters, digits, "-" and "_", starting with a letter or digit. It appears in storage keys and URLs.`)
+      return undefined
+    }
+    return value
+  }
+
+  string(key: string, opts: { required?: boolean; hint?: string } = {}): string | undefined {
+    const value = this.raw(key)
+    if (value === undefined) {
+      if (opts.required) this.missing(key, opts.hint)
+      return undefined
+    }
+    if (typeof value !== "string" || value === "") {
+      this.error(key, `must be a non-empty string${opts.hint ? ` (${opts.hint})` : ""}, got ${show(value)}.`)
+      return undefined
+    }
+    return value
+  }
+
+  oneOf<T extends string>(key: string, allowed: readonly T[], opts: { required?: boolean; transform?: (s: string) => string } = {}): T | undefined {
+    const value = this.raw(key)
+    if (value === undefined) {
+      if (opts.required) this.error(key, `is required: one of ${allowed.join(", ")}.`)
+      return undefined
+    }
+    const s = typeof value === "string" && opts.transform ? opts.transform(value) : value
+    if (typeof s === "string" && (allowed as readonly string[]).includes(s)) return s as T
+    this.error(key, `must be one of ${allowed.join(", ")}, got ${show(value)}.`)
+    return undefined
+  }
+
+  boolean(key: string, fallback: boolean): boolean {
+    const value = this.raw(key)
+    if (value === undefined) return fallback
+    if (typeof value === "boolean") return value
+    this.error(key, `must be true or false, got ${show(value)}.`)
+    return fallback
+  }
+
+  number(key: string, fallback: number, opts: { above: number }): number {
+    const value = this.raw(key)
+    if (value === undefined) return fallback
+    if (typeof value === "number" && Number.isFinite(value) && value > opts.above) return value
+    this.error(key, `must be a number above ${opts.above}, got ${show(value)}.`)
+    return fallback
+  }
+
+  integer(key: string, fallback: number, opts: { min: number; max?: number }): number {
+    const value = this.raw(key)
+    if (value === undefined) return fallback
+    if (typeof value === "number" && Number.isInteger(value) && value >= opts.min && (opts.max === undefined || value <= opts.max)) return value
+    const range = opts.max === undefined ? `${opts.min} or more` : `from ${opts.min} to ${opts.max}`
+    this.error(key, `must be a whole number ${range}, got ${show(value)}.`)
+    return fallback
+  }
+
+  /** A fraction between 0 and 1, written as a number or as "1/3". */
+  fraction(key: string, fallback: number): number {
+    const value = this.raw(key)
+    if (value === undefined) return fallback
+    let n = Number.NaN
+    if (typeof value === "number") n = value
+    else if (typeof value === "string") {
+      const m = /^([0-9]+)\/([0-9]+)$/.exec(value)
+      if (m) n = Number(m[1]) / Number(m[2])
+    }
+    if (n > 0 && n < 1) return n
+    this.error(key, `must be a fraction between 0 and 1, such as 0.33 or "1/3", got ${show(value)}.`)
+    return fallback
+  }
+
+  /** Seconds, written as a number of seconds or as "30s", "15m", "1h", "1d", "daily" or "hourly". */
+  duration(key: string, fallback: number, opts?: { required?: false }): number
+  duration(key: string, fallback: undefined, opts: { required: true }): number | undefined
+  duration(key: string, fallback: number | undefined, opts: { required?: boolean } = {}): number | undefined {
+    const value = this.raw(key)
+    if (value === undefined) {
+      if (opts.required) this.missing(key, 'a duration such as "15m", "1h" or "1d"')
+      return fallback
+    }
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) return value
+    if (value === "daily") return 86400
+    if (value === "hourly") return 3600
+    const m = typeof value === "string" ? DURATION.exec(value) : null
+    if (m && Number(m[1]) > 0) return Number(m[1]) * UNIT_SECONDS[m[2] as keyof typeof UNIT_SECONDS]
+    this.error(key, `must be a duration such as "30s", "15m", "1h" or "1d", or a whole number of seconds, got ${show(value)}.`)
+    return fallback
+  }
+
+  host(key: string, fallback?: string): string | undefined {
+    const value = this.raw(key)
+    if (value === undefined) {
+      if (fallback === undefined) this.missing(key, "a host name such as www.example.com")
+      return fallback
+    }
+    if (typeof value === "string" && HOST.test(value)) return value.toLowerCase()
+    this.error(key, `must be a host name such as www.example.com, without a scheme or path, got ${show(value)}.`)
+    return undefined
+  }
+
+  url(key: string): string | undefined {
+    const value = this.string(key, { required: true, hint: "the http or https URL to request" })
+    if (value === undefined) return undefined
+    let parsed: URL | null = null
+    try {
+      parsed = new URL(value)
+    } catch {
+      parsed = null
+    }
+    if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+      this.error(key, `must be an http or https URL, got ${show(value)}.`)
+      return undefined
+    }
+    return value
+  }
+
+  stringList<T extends string = string>(key: string, opts: { required?: boolean; allowed?: readonly T[]; pattern?: RegExp; what?: string } = {}): T[] | undefined {
+    const value = this.raw(key)
+    if (value === undefined) {
+      if (opts.required) this.missing(key)
+      return undefined
+    }
+    if (!Array.isArray(value)) {
+      this.error(key, `must be a list, got ${show(value)}.`)
+      return undefined
+    }
+    const out: T[] = []
+    const allowed: readonly string[] | undefined = opts.allowed
+    value.forEach((item: unknown, i) => {
+      const ok =
+        typeof item === "string" &&
+        item !== "" &&
+        (!allowed || allowed.includes(item)) &&
+        (!opts.pattern || opts.pattern.test(item))
+      if (ok) out.push(item as T)
+      else if (opts.allowed) this.error(`${key}[${i}]`, `must be one of ${opts.allowed.join(", ")}, got ${show(item)}.`)
+      else this.error(`${key}[${i}]`, `must be ${opts.what ?? "a non-empty string"}, got ${show(item)}.`)
+    })
+    return out.length === value.length ? out : undefined
+  }
+
+  stringRecord(key: string): Record<string, string> {
+    const value = this.raw(key)
+    if (value === undefined) return {}
+    if (!isRecord(value) || !Object.values(value).every((v) => typeof v === "string")) {
+      this.error(key, `must be an object of header names to string values, got ${show(value)}.`)
+      return {}
+    }
+    return value as Record<string, string>
+  }
+
+  /** Status codes and classes: 204, "2xx", or a list of them. Default 2xx. */
+  statusRanges(key: string): StatusRange[] {
+    const value = this.raw(key)
+    if (value === undefined) return [{ min: 200, max: 299 }]
+    const items: unknown[] = Array.isArray(value) ? value : [value]
+    const out: StatusRange[] = []
+    for (const item of items) {
+      if (typeof item === "number" && Number.isInteger(item) && item >= 100 && item <= 599) out.push({ min: item, max: item })
+      else if (typeof item === "string" && /^[1-5]xx$/.test(item)) {
+        const base = Number(item[0]) * 100
+        out.push({ min: base, max: base + 99 })
+      } else {
+        this.error(key, `must be status codes from 100 to 599 or classes such as "2xx", got ${show(item)}.`)
+        return [{ min: 200, max: 299 }]
+      }
+    }
+    if (!out.length) this.error(key, 'add at least one status code or class, or leave it out to accept any 2xx.')
+    return out.length ? out : [{ min: 200, max: 299 }]
+  }
+
+  /** Reports keys that weren't read, suggesting the closest known one. */
+  finish(opts: { skipUnknown?: boolean } = {}) {
+    if (opts.skipUnknown) return
+    const known = [...this.read, ...this.known]
+    for (const key of Object.keys(this.obj)) {
+      if (this.read.has(key) || this.known.includes(key)) continue
+      const near = known.find((k) => distance(k.toLowerCase(), key.toLowerCase()) <= 2)
+      this.error(key, `isn't a known field${near ? `. Did you mean ${near}?` : "."}`)
+    }
+  }
+}
+
+/** Edit distance, for typo suggestions. */
+function distance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i]
+    for (let j = 1; j <= b.length; j++) {
+      row[j] = Math.min((prev[j] ?? 0) + 1, (row[j - 1] ?? 0) + 1, (prev[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1))
+    }
+    prev = row
+  }
+  return prev[b.length] ?? 0
+}
