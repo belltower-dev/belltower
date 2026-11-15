@@ -416,11 +416,15 @@ of the last build; with it, the status page refreshes from
 
 ### Pages
 
+The first view is short: a visitor picks what they use, and details come
+after a click. No bars appear until a group is opened.
+
 | Page | Shows |
 | --- | --- |
-| Status | The overall status line with "Last updated" and its time; current notices; open incidents and maintenance in progress; components in their groups, each with its state, 90-day bars and response time; "Checked from", the regions checks run in |
-| Maintenance | Upcoming and current maintenance |
-| History | Every day of the last 90, newest first, under a heading for each month and one for each day with its count of incidents; each day lists its incidents and maintenance, or "No incidents reported" on a quiet day ("No incidents reported today" for today). Then an event log: every update of every incident and maintenance in those 90 days in one list, newest first, each with its time, stage and a link to its incident. A link at the top of the page goes straight to the log |
+| Status | The overall state as a headline with its state icon ("All services are online", or the situation in a sentence) and "Last updated"; a pill counting components that are operational ("13 of 13 components operational"); a "Checked from" control; current notices, open incidents and maintenance in progress; then a card per component group with its description and its state in words; then one line of recent incidents with a link to Previous incidents |
+| One per group | The group's state, then its components as a bordered list, each with its state in words. A component row expands to its description, 90-day bars, response time, and this month's availability against the target with the downtime budget. Then a legend, and the group's incidents for the last 15 days, by day |
+| Maintenance | Maintenance in progress and upcoming |
+| Previous incidents | The last 90 days, newest first, under a heading for each month; each day with incidents has a row with its date and count; each incident shows its stage, its latest update with stage and time, and "N previous updates" folded beneath. A month with nothing says so. Then an event log: every update of every incident and maintenance in one list, newest first, with a link at the top of the page that goes straight to it |
 | One per incident | A permanent address: title, stage, impact, duration, components affected, and every update with its stage and time |
 
 Plus `feed.atom`, `feed.rss` and `feed.json` (JSON Feed) of incidents and
@@ -447,11 +451,11 @@ Degraded performance, Maintenance, Operational.
 
 ### Components
 
-- Listed in their `group`, in config order. A group is a section with a
-  heading and a button that expands and collapses it, saying what it does
-  ("Hide Europe", "Show Europe") with `aria-expanded`.
-- Each shows its name (a link when `link` is set), its `description`, its
-  state, and its uptime for 90 days.
+- Grouped by `group`, in config order. Each group is a card on the Status
+  page and has its own page. Components without a group share one.
+- On its group's page, each component is a row with its name (a link when
+  `link` is set) and its state. The row is a button with `aria-expanded`
+  that opens its `description`, its 90-day bars and the rest below.
 - **90-day bars,** one per day. Days before monitoring began show as "No
   data", and the legend includes it. Each bar has a text label (date, uptime
   percentage, time degraded, incidents), such as "14 November: 99.9% up, 6
@@ -470,7 +474,7 @@ Degraded performance, Maintenance, Operational.
 
 - Open incidents first, then the last 90 days. With none open, the Status
   page says "No incidents in the last 7 days" when that's true, with a link
-  to History.
+  to Previous incidents.
 - **Stage:** each update has one, as a word: Investigating, Identified,
   Monitoring, Resolved, or Update.
 - **Impact:** None, Minor, Major or Critical. "None" is for components
@@ -500,34 +504,45 @@ results time in `public/status.json`.
 Every time is shown in the viewer's time zone with UTC alongside, such as
 "14:40 (13:40 UTC)". Without JavaScript, times show in UTC.
 
-### Themes
+### Light and dark
 
 System, light and dark, following the viewer's setting unless they choose
-one; the page's `theme` sets the default. The choice is a native control
+one; the page's `mode` sets the default. The choice is a native control
 and is remembered on that device.
 
 ### Branding
+
+A deployment makes the page its own with a theme, its logo, and the
+colors of its states. The theme uses the shadcn/ui theme format, so a
+theme from a deployment's own shadcn/ui app, or one made in a theme editor
+such as tweakcn, works as it is.
 
 From the config's `page` section:
 
 | Field | Meaning | Default |
 | --- | --- | --- |
 | `name`, `link` | The deployment's name and home page. With `link`, the header also shows a visible "Go to {name}" link | |
-| `logo`, `logoDark` | Image addresses, each with required `alt` text | the name in text |
+| `logo`, `logoDark` | Image addresses (SVG preferred), each with required `alt` text | the name in text |
 | `favicon` | Image address | none |
-| `accent` | A color, such as `#0b6bcb` | a built-in blue |
-| `font` | A font family; a web font only from the deployment's own host | the system font stack |
-| `theme` | `system`, `light` or `dark` | `system` |
+| `theme` | A theme in the shadcn/ui registry format: a file path, a URL fetched at build, or the same object inline. Its light and dark variables (`background`, `foreground`, `card`, `primary`, `secondary`, `muted`, `accent`, `destructive`, `border`, `input`, `ring`, `chart-1` to `chart-5`, `radius`) and fonts (`font-sans`, `font-mono`, `font-serif`) style the page | Belltower's neutral theme |
+| `states` | Colors for the six day and state marks (`operational`, `degraded`, `partial`, `major`, `maintenance`, `nodata`), each with a light and a dark value, for a deployment that already has its own status colors | taken from the theme's chart and destructive colors |
+| `mode` | `system`, `light` or `dark` | `system` |
 | `footer` | Text and links | none |
 | `poweredBy` | Show "Powered by Belltower" | `true` |
 | `reportProblem` | An address for a "Report a problem" link | none |
 
-- **Contrast is checked when the page is built.** The accent color is
-  tested against both themes' backgrounds and text: 4.5:1 for text, 3:1
-  for graphics and large text. A failing pair stops the build with the two
-  colors and the ratio.
-- **No custom CSS or scripts.** Branding that can't be checked can break
-  accessibility.
+- **How the theme maps:** the page's surfaces come from `background`,
+  `muted` and `border`; text from `foreground`; buttons and links from
+  `primary`; outages from `destructive`; corners from `radius`; focus from
+  `ring`. Fonts named by the theme are fetched once at build and served
+  from the page's own host, so visitors make no third-party requests.
+- **Contrast is checked when the page is built,** in both modes: text and
+  state words 4.5:1 on every surface they sit on, bars, icons, borders of
+  controls and the focus indicator 3:1, and the primary button's text on
+  its fill. A failing pair stops the build with the two colors, the ratio,
+  and the nearest value that passes.
+- **No custom CSS or scripts.** A theme is variables, which the build can
+  check; rules and scripts are where branding breaks accessibility.
 - The page is served from the deployment's own domain; the docs show the
   DNS record for each static host.
 
@@ -540,9 +555,9 @@ From the config's `page` section:
 - `status.json`, `history.json` and the feeds sit beside it. All are
   readable from other sites (CORS allowed) and cached briefly.
 - **Markdown copies.** Each page has a copy at the same address with `.md`
-  added (`index.md`, `history.md`, `incidents/{id}.md`), linked from the
-  page with `<link rel="alternate" type="text/markdown">`. The bars become
-  a line of symbols with a legend in words (`+` Operational, `~` Degraded,
+  added (`index.md`, `incidents.md`, `{group}.md`, `incidents/{id}.md`),
+  linked from the page with `<link rel="alternate" type="text/markdown">`.
+  The bars become a line of symbols with a legend in words (`+` Operational, `~` Degraded,
   `x` Outage, `=` Maintenance, `.` No data). Agents and scripts read them
   without parsing HTML, and static hosts serve them as plain files.
 - `llms.txt` lists the pages, their Markdown copies, the JSON files and the
@@ -570,7 +585,7 @@ Everything Belltower produces for people:
 | --- | --- | --- |
 | States never by color alone | 1.4.1 | Every state has its word: Operational, Degraded, Down, Maintenance |
 | History bars have a text equivalent | 1.1.1, 1.3.1 | Each bar has a text label, and the same data is in a real table |
-| Contrast: text 4.5:1, large text and graphics 3:1 | 1.4.3, 1.4.11 | Checked in light and dark themes. `buildPage()` refuses brand colors from config that fail these ratios, and says which pair failed |
+| Contrast: text 4.5:1, large text and graphics 3:1 | 1.4.3, 1.4.11 | Checked in light and dark themes. `buildPage()` refuses a theme or state colors from config that fail these ratios, and says which pair failed and the nearest passing value |
 | Reflow at 320 CSS pixels and 200% text | 1.4.4, 1.4.10 | One column on narrow screens; the 90 days of bars wrap or scroll inside their own region, never the page |
 | Text spacing | 1.4.12 | No fixed heights on text containers |
 | Keyboard, visible focus, no traps | 2.1.1, 2.1.2, 2.4.7 | Native links and buttons only |

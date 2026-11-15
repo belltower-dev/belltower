@@ -382,7 +382,10 @@ becoming an on-call scheduling product.
   spec's "Status page" and "Notes". Subscriptions by email, webhook and
   Slack wait for phases 3 and 4.
 - 12. Branding from config with the contrast check: the spec's "Status
-  page", under "Branding". The email sender in config comes with phase 3.
+  page", under "Branding". A theme is a shadcn/ui-format theme (from a
+  deployment's own app or a theme editor), plus a logo and optional state
+  colors, all checked for contrast at build. The email sender in config
+  comes with phase 3.
 - 7. Public status API, in part: JSON Schemas for `status.json`,
   `history.json` and the monthly report, with the compatibility rule, are
   in the spec's "Storage". CORS, caching and the embedding docs come with

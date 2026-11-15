@@ -79,13 +79,15 @@ real AWS deployment of `examples/aws-sam`.
    done-when checks.
 2. Priorities P1 to P5 and incident keys, replacing `severity` and
    `critical` in the config and one-incident-per-check in `decide`.
-3. What the status page reads: five component states, component groups,
+3. What the status page reads (the design is chosen: the spec's "Status
+   page", reviewed as a preview): five component states, component groups,
    descriptions and links, the `page` config with its branding, update
    stages, impact, notices and component states in notes, each region's
    last results time in `status.json`, a response-time aggregate that also
    counts degraded minutes per day, `summary.json` and the feeds.
-4. `buildPage()`, following the spec's "Status page". Its design is shared
-   for review before it's built.
+4. `buildPage()`, following the spec's "Status page", including themes in
+   the shadcn/ui format with the contrast check at build. Shared for review
+   before it's committed.
 
 Phase 1's done-when checks are below.
 
