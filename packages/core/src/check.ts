@@ -142,14 +142,15 @@ export async function runHttpCheck(check: HttpCheck, deps: { http: HttpClient; s
     if (response.type === "opaqueredirect") {
       return fail("unsupported", "The response is a redirect this runtime won't show (followRedirects is false). Set followRedirects to true, or run the check on a server runtime.", { timing })
     }
+    // A rejected keyword means private content is showing, so it outranks every other failure.
+    if (check.rejectKeyword !== undefined && body.includes(check.rejectKeyword)) {
+      return fail("rejected-keyword", `The body contains "${check.rejectKeyword}", which it must not.`, details)
+    }
     if (!check.expectStatus.some((r) => response.status >= r.min && response.status <= r.max)) {
       return fail("status", `Got status ${response.status}, expected ${describeStatus(check)}.`, details)
     }
     if (check.expectKeyword !== undefined && !body.includes(check.expectKeyword)) {
       return fail("missing-keyword", `The body doesn't contain "${check.expectKeyword}".`, details)
-    }
-    if (check.rejectKeyword !== undefined && body.includes(check.rejectKeyword)) {
-      return fail("rejected-keyword", `The body contains "${check.rejectKeyword}", which it must not.`, details)
     }
     return { id: check.id, ok: true, slow: totalMs > check.slowSeconds * 1000, status: response.status, timing }
   } catch (error) {

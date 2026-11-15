@@ -143,6 +143,11 @@ describe("runChecks", () => {
     expect((await run())[0]).toMatchObject({ ok: false, failure: "rejected-keyword" })
   })
 
+  it("reports a rejected keyword ahead of a wrong status, since it means private content is showing", async () => {
+    const { run } = setup([{ url: URL_A, expectStatus: 401, rejectKeyword: "Account balance" }], { [URL_A]: { status: 200, body: "Account balance: 10" } })
+    expect((await run())[0]).toMatchObject({ ok: false, failure: "rejected-keyword", message: 'The body contains "Account balance", which it must not.' })
+  })
+
   it("fails on a network error", async () => {
     const { run } = setup([{ url: URL_A }], { [URL_A]: { error: new TypeError("getaddrinfo ENOTFOUND") } })
     expect((await run())[0]).toMatchObject({ ok: false, failure: "network", message: "The request failed: getaddrinfo ENOTFOUND." })

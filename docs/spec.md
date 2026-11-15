@@ -192,7 +192,9 @@ The same issues also come as one readable line each.
 ### HTTP
 
 - **Fails when** the request errors, times out, returns a status outside
-  `expectStatus`, misses `expectKeyword` or contains `rejectKeyword`.
+  `expectStatus`, misses `expectKeyword` or contains `rejectKeyword`. When
+  several apply, `rejectKeyword` is the one reported, since it means
+  private content is showing.
 - `rejectKeyword` is how a deployment checks that protected content stays
   protected: request a private page signed out and reject a phrase from its
   body. Mark such checks `critical`, since a failure is a data exposure, not
