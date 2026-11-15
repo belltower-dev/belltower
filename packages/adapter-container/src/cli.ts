@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs"
+import { readdir, readFile } from "node:fs/promises"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 import {
+  buildNotes,
+  NOTES_KEY,
   decide,
   handle,
   runChecks,
@@ -34,6 +38,7 @@ Commands:
   validate                    Check the config against the schema and the regions
   run checks --region <name>  Run one region's checks once and write its results file
   run decide                  Judge recent results, open and resolve incidents, send alerts
+  notes push [--dir <dir>]    Check the incident and maintenance notes and publish them
   serve                       Answer heartbeat pings over HTTP
   serve --schedule            Also run every region's checks and decide each minute (one machine)
 
@@ -46,7 +51,8 @@ Options:
                     or s3://bucket/prefix for S3-compatible storage
                     Default: $BELLTOWER_STORE, or ./belltower-data
   --port <n>        serve: the port. Default: $PORT, or 8080
-  --dry-run         run: do the work, but write nothing and send no alerts
+  --dir <dir>       notes push: the folder of .md notes. Default: notes
+  --dry-run         run, notes push: do the work, but write nothing and send no alerts
   --json            Print JSON (format ${CLI_FORMAT})
   --help            Show this help
 
@@ -69,6 +75,7 @@ const OPTIONS = {
   store: { type: "string" },
   region: { type: "string" },
   port: { type: "string" },
+  dir: { type: "string" },
   schedule: { type: "boolean" },
   "dry-run": { type: "boolean" },
   json: { type: "boolean" },
@@ -127,6 +134,32 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
         const notifiers = dryRun ? await recording(setup, io, would) : await containerNotifiers(setup.config, envSecrets(io.env))
         const result = await decide({ ...deps(setup, store, io), notifiers })
         report(dryRun ? { ...result, alerts: would } : result, describeDecision(result, dryRun ? would : null))
+        return EXIT.ok
+      }
+      case "notes push": {
+        const setup = await loadSetup(configPath, regionsFlag)
+        const dir = values.dir ?? "notes"
+        let names: string[]
+        try {
+          names = (await readdir(dir)).filter((n) => n.toLowerCase().endsWith(".md")).sort()
+        } catch {
+          throw new CliError(EXIT.usage, [{ code: "usage", path: "--dir", message: `There's no folder at ${dir}.`, fix: "Pass the folder of notes with --dir." }])
+        }
+        const files = await Promise.all(names.map(async (n) => ({ file: join(dir, n), text: await readFile(join(dir, n), "utf8") })))
+        const built = buildNotes(files, setup.config, new Date())
+        const warnings = built.warnings.map((w) => ({ file: w.file, field: w.field, message: w.message, fix: w.fix }))
+        if (!built.notes) {
+          throw new CliError(
+            EXIT.configInvalid,
+            built.errors.map((e) => ({ code: "note-invalid", path: `${e.file}: ${e.field}`, message: e.message, ...(e.fix ? { fix: e.fix } : {}) })),
+          )
+        }
+        if (!dryRun) await platform(storeFromFlag(storeDir, io.env)).put(NOTES_KEY, JSON.stringify(built.notes), { contentType: "application/json" })
+        const human = [
+          `${dryRun ? "Would publish" : "Published"} ${built.notes.notes.length} notes to ${NOTES_KEY}.`,
+          ...warnings.map((w) => `Warning: ${w.file}: ${w.message} ${w.fix ?? ""}`.trim()),
+        ].join("\n")
+        report({ notes: built.notes.notes.map((n) => ({ id: n.id, type: n.type, start: n.start, end: n.end ?? null })), warnings, dryRun }, human)
         return EXIT.ok
       }
       case "serve": {

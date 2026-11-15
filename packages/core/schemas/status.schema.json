@@ -38,6 +38,6 @@
   },
   "additionalProperties": false,
   "$defs": {
-    "state": { "enum": ["operational", "degraded", "down"], "description": "Shown in words: Operational, Degraded, Down." }
+    "state": { "enum": ["operational", "degraded", "maintenance", "down"], "description": "Shown in words: Operational, Degraded, Maintenance, Down." }
   }
 }

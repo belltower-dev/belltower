@@ -249,6 +249,10 @@ with a token. Phase 3.
 
 ## Moved into the spec and plan
 
+- 1. Accessibility wording and scope, in part: the warnings on incident
+  and maintenance notes (alt text, link text, heading levels, table
+  headers) are in the spec's "Notes", from `belltower notes push`. The
+  logo's alt text and the wording rules come with `buildPage()`.
 - 7. Public status API, in part: JSON Schemas for `status.json`,
   `history.json` and the monthly report, with the compatibility rule, are
   in the spec's "Storage". CORS, caching and the embedding docs come with

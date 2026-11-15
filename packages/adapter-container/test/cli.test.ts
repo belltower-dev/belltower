@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
@@ -165,6 +165,43 @@ describe("email notifiers in the CLI", () => {
     io.env.BELLTOWER_EMAIL_FROM = "alerts@example.com"
     expect(await run("run", "decide")).toBe(0)
     expect([...out, ...err].join("\n")).not.toContain("hunter2-secret")
+  })
+})
+
+describe("belltower notes push", () => {
+  const note = (title: string, extra = "") =>
+    `---\ntype: maintenance\ntitle: ${title}\ncomponents: Website\nstart: 2026-11-20T02:00:00Z\nend: 2026-11-20T03:00:00Z\n---\nMoving servers.${extra}\n`
+
+  it("publishes the notes to public/notes.json, and reports accessibility warnings", async () => {
+    const { run, out, dir } = await workspace()
+    await mkdir(join(dir, "notes"))
+    await writeFile(join(dir, "notes", "upgrade.md"), note("Server move", "\n\n![](map.png)"))
+    expect(await run("notes", "push", "--dir", join(dir, "notes"))).toBe(0)
+    const lines = out.join("\n").split("\n")
+    expect(lines[0]).toBe("Published 1 notes to public/notes.json.")
+    expect(lines[1]).toContain("Warning:")
+    expect(lines[1]).toContain("has no alt text")
+    const published = JSON.parse((await localFolderStore(join(dir, "data")).get("public/notes.json")) ?? "")
+    expect(published.notes[0]).toMatchObject({ id: "upgrade", title: "Server move" })
+  })
+
+  it("publishes nothing and exits 3 when a note has an error", async () => {
+    const { run, err, dir } = await workspace()
+    await mkdir(join(dir, "notes"))
+    await writeFile(join(dir, "notes", "good.md"), note("Fine"))
+    await writeFile(join(dir, "notes", "bad.md"), "---\ntype: maintenance\n---\n")
+    expect(await run("notes", "push", "--dir", join(dir, "notes"))).toBe(3)
+    expect(err.join("\n")).toContain("bad.md: title: is missing.")
+    expect(await localFolderStore(join(dir, "data")).get("public/notes.json")).toBeNull()
+  })
+
+  it("writes nothing on a dry run", async () => {
+    const { run, out, dir } = await workspace()
+    await mkdir(join(dir, "notes"))
+    await writeFile(join(dir, "notes", "upgrade.md"), note("Server move"))
+    expect(await run("notes", "push", "--dir", join(dir, "notes"), "--dry-run")).toBe(0)
+    expect(out[0]).toBe("Would publish 1 notes to public/notes.json.")
+    expect(await localFolderStore(join(dir, "data")).get("public/notes.json")).toBeNull()
   })
 })
 

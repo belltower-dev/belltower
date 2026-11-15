@@ -338,7 +338,8 @@ instructions: [certificates.md](certificates.md).
   those.
 - **Public incident notes** are Markdown files in the deployment's
   repository, written by hand: title, component, start, end, updates with
-  times. A detected incident shows as "Detected outage" until a note exists.
+  times. A detected incident shows as "Detected outage" until a note names
+  it in `detected`. The format is in "Notes", below.
 - **Who watches Belltower:** `public/status.json` carries the time it was
   written. The deployment should have something outside Belltower (the
   watched service itself, or a free external check) alert when it's more
@@ -346,10 +347,48 @@ instructions: [certificates.md](certificates.md).
 
 ## Maintenance
 
-- Declared by a Markdown file with component, start and end.
-- During the window, checks still run; failures don't alert and don't count
-  as downtime.
-- Shown on the status page from the moment the file is published.
+- Declared by a Markdown note with components, start and end.
+- During the window, checks still run, but `decide()` opens no incident and
+  sends no alert for those components, and the minutes count neither up
+  nor down. The component's state is Maintenance, unless an incident was
+  already open when the window began.
+- An outage that outlasts the window counts from the window's end.
+- Shown on the status page from the moment the note is published.
+
+## Notes
+
+Incident and maintenance notes are Markdown files in a folder of the
+deployment's repository. Each starts with a header between `---` lines:
+
+```
+---
+type: maintenance
+title: Database upgrade
+components: API, Website
+start: 2026-11-20T02:00:00Z
+end: 2026-11-20T03:00:00Z
+---
+We're moving the API's database to a larger server.
+
+## 2026-11-20 02:40 UTC
+The copy is done; switching over now.
+```
+
+- `type` is `maintenance` or `incident`. `component` works for one.
+- Times are ISO times with a zone. `end` is required for maintenance and
+  optional for an incident still open.
+- `detected` (incidents only) lists the detected incident ids the note
+  explains, separated by commas.
+- Each level-two heading `## yyyy-mm-dd hh:mm UTC` starts an update; the
+  text before the first is the summary.
+- The note's id is its file name without `.md`.
+
+`belltower notes push --dir <folder>` checks every note against the config
+and publishes them to `public/notes.json`. One error in any note
+publishes nothing, with exit code 3, the file, the field and a fix. It
+also warns, without failing, about images without alt text, links whose
+text is only "here" or a bare URL, skipped heading levels, and HTML tables
+without header cells. `decide()` reads `public/notes.json` every minute.
 
 ## Status page
 
@@ -462,6 +501,7 @@ incidents/{id}.json                               detected incidents
 state/decide.json                                 which checks have an open incident (decide()'s own state)
 public/status.json                                current state, with the time it was written
 public/history.json                               90 days of daily figures per component
+public/notes.json                                 published incident and maintenance notes
 public/reports/{yyyy}-{mm}.json|csv               monthly availability
 ```
 
@@ -504,6 +544,7 @@ it the same way, so it follows these rules:
 | `belltower validate` | Checks the config against the schema and the regions |
 | `belltower run checks --region <name>` | Runs one region's checks once and writes its results file. For a scheduler (Kubernetes `CronJob`, Cloud Scheduler) to call every minute |
 | `belltower run decide` | Runs `decide()` once. Called every minute in one place |
+| `belltower notes push --dir <folder>` | Checks the incident and maintenance notes and publishes them to `public/notes.json` (see "Notes") |
 | `belltower serve` | Serves `handle()` over HTTP, plus `GET /healthz` |
 | `belltower serve --schedule` | Also runs every region's checks and `decide()` at the top of each minute, for a single machine. A minute whose previous run hasn't finished is skipped |
 

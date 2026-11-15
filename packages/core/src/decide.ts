@@ -2,6 +2,7 @@ import { resultsKey, RESULTS_FORMAT, type CheckResult, type ResultsFile } from "
 import type { Check, Config, HeartbeatCheck, HttpCheck, Thresholds } from "./config.ts"
 import { rollUp } from "./availability.ts"
 import { heartbeatKey, judgeHeartbeat, type HeartbeatRecord } from "./heartbeat.ts"
+import { maintenanceWindows, NOTES_FORMAT, NOTES_KEY, type PublicNotes } from "./notes.ts"
 import type { Alert, AlertLevel, Clock, HttpTiming, Notifier, Store } from "./ports.ts"
 
 /*
@@ -18,7 +19,7 @@ export const DECIDE_STATE_FORMAT = "belltower.decide/1"
 export const DECIDE_STATE_KEY = "state/decide.json"
 export const STATUS_KEY = "public/status.json"
 
-export type CheckState = "up" | "degraded" | "down" | "pending"
+export type CheckState = "up" | "degraded" | "down" | "pending" | "maintenance"
 
 /** One minute of one check: each region that reported it, and its result. */
 export type Sample = Readonly<Record<string, CheckResult>>
@@ -92,7 +93,7 @@ export interface Incident {
   firstFailures: Record<string, FirstFailure>
 }
 
-export type ComponentState = "operational" | "degraded" | "down"
+export type ComponentState = "operational" | "degraded" | "maintenance" | "down"
 
 /** Written from an allowlist of fields: nothing from the config beyond component names. */
 export interface PublicStatus {
@@ -148,6 +149,13 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
   const files = await readResults(store, Object.keys(byRegion), minutes, problems)
   const state = await readState(store)
   const report: DecideReport = { states: {}, opened: [], resolved: [], problems }
+  const notes = await readNotes(store, problems)
+  const windows = maintenanceWindows(notes)
+  /** The end of the maintenance window covering a moment, or null. */
+  const maintenanceEnd = (component: string, at: number): number | null => {
+    const w = windows.find((m) => m.component === component && Date.parse(m.start) <= at && at < Date.parse(m.end))
+    return w ? Date.parse(w.end) : null
+  }
 
   const runners = new Map<string, string[]>()
   for (const [region, ids] of Object.entries(byRegion)) for (const id of ids) runners.set(id, [...(runners.get(id) ?? []), region])
@@ -160,22 +168,28 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
     const openId = state.open[check.id]
     let change: { opened: Incident } | { endedAt: Date } | null = null
 
+    const maintenanceNow = maintenanceEnd(check.component, now.getTime()) !== null
+
     if (check.type === "http") {
       const regions = runners.get(check.id) ?? []
       const samples = minutes.map((m) => sampleFor(files, regions, m, check.id))
       const verdict = judge(samples, regions.length, t, openId !== undefined)
-      report.states[check.id] = verdict.state
-      if (openId === undefined && verdict.state === "down" && verdict.since !== null) {
-        change = { opened: httpIncident(check, levelFor(check), samples.slice(verdict.since), minutes.slice(verdict.since), now) }
+      report.states[check.id] = maintenanceNow && openId === undefined ? "maintenance" : verdict.state
+      if (openId === undefined && !maintenanceNow && verdict.state === "down" && verdict.since !== null) {
+        // An outage that began in a maintenance window counts from the window's end.
+        let from = verdict.since
+        while (from < minutes.length && maintenanceEnd(check.component, minutes[from]?.getTime() ?? 0) !== null) from++
+        if (from < minutes.length) change = { opened: httpIncident(check, levelFor(check), samples.slice(from), minutes.slice(from), now) }
       } else if (openId !== undefined && verdict.state !== "down" && verdict.since !== null) {
         change = { endedAt: minutes[verdict.since] ?? now }
       }
     } else if (check.type === "heartbeat") {
       const record = await readJson<HeartbeatRecord>(store, heartbeatKey(check.id))
       const verdict = judgeHeartbeat(check, record, now)
-      report.states[check.id] = verdict.state
-      if (openId === undefined && verdict.state === "down" && verdict.since) {
-        change = { opened: heartbeatIncident(check, levelFor(check), verdict.since, verdict.reason ?? "", now) }
+      report.states[check.id] = maintenanceNow && openId === undefined ? "maintenance" : verdict.state
+      if (openId === undefined && !maintenanceNow && verdict.state === "down" && verdict.since) {
+        const since = new Date(Math.max(verdict.since.getTime(), maintenanceEnd(check.component, verdict.since.getTime()) ?? 0))
+        change = { opened: heartbeatIncident(check, levelFor(check), since, verdict.reason ?? "", now) }
       } else if (openId !== undefined && verdict.state === "up") {
         change = { endedAt: new Date(record?.lastSuccess ?? now) }
       }
@@ -207,14 +221,28 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
   state.since ??= now.toISOString()
   const changed = report.opened.length > 0 || report.resolved.length > 0
   if (changed || !state.rolledUpAt || now.getTime() - Date.parse(state.rolledUpAt) >= ROLL_UP_EVERY) {
-    await rollUp({ config, store, clock, since: new Date(state.since) })
+    await rollUp({ config, store, clock, since: new Date(state.since), maintenance: windows })
     state.rolledUpAt = now.toISOString()
   }
 
   await store.put(DECIDE_STATE_KEY, JSON.stringify(state), { contentType: "application/json" })
   const openIncidents = await Promise.all(Object.values(state.open).map((id) => readJson<Incident>(store, incidentKey(id))))
-  await store.put(STATUS_KEY, JSON.stringify(publicStatus(config, report.states, openIncidents, now)), { contentType: "application/json" })
+  const maintenance = new Set(config.components.map((c) => c.name).filter((name) => maintenanceEnd(name, now.getTime()) !== null))
+  await store.put(STATUS_KEY, JSON.stringify(publicStatus(config, report.states, openIncidents, now, maintenance)), { contentType: "application/json" })
   return report
+}
+
+async function readNotes(store: Store, problems: string[]): Promise<PublicNotes | null> {
+  const text = await store.get(NOTES_KEY)
+  if (text === null) return null
+  try {
+    const notes = JSON.parse(text) as PublicNotes
+    if (notes.format !== NOTES_FORMAT || !Array.isArray(notes.notes)) throw new Error(`format ${JSON.stringify(notes.format)}`)
+    return notes
+  } catch (error) {
+    problems.push(`${NOTES_KEY} couldn't be read (${(error as Error).message}); maintenance windows are ignored until it's published again.`)
+    return null
+  }
 }
 
 /** Region to minute (ms) to that run's results by check id. */
@@ -363,9 +391,15 @@ async function send(notifiers: readonly Notifier[], alert: Alert, problems: stri
   )
 }
 
-const RANK: Record<ComponentState, number> = { operational: 0, degraded: 1, down: 2 }
+const RANK: Record<ComponentState, number> = { operational: 0, maintenance: 1, degraded: 2, down: 3 }
 
-export function publicStatus(config: Config, states: Readonly<Record<string, CheckState>>, open: readonly (Incident | null)[], now: Date): PublicStatus {
+export function publicStatus(
+  config: Config,
+  states: Readonly<Record<string, CheckState>>,
+  open: readonly (Incident | null)[],
+  now: Date,
+  maintenance: ReadonlySet<string> = new Set(),
+): PublicStatus {
   const publicChecks = new Set(config.checks.filter((c) => c.public).map((c) => c.id))
   const components = config.components.map((component) => {
     let state: ComponentState = "operational"
@@ -375,6 +409,8 @@ export function publicStatus(config: Config, states: Readonly<Record<string, Che
       const mapped: ComponentState = s === "down" ? "down" : s === "degraded" ? "degraded" : "operational"
       if (RANK[mapped] > RANK[state]) state = mapped
     }
+    // Maintenance replaces anything but an incident that was already open when it began.
+    if (maintenance.has(component.name) && state !== "down") state = "maintenance"
     return { name: component.name, state }
   })
   const overall = components.reduce<ComponentState>((worst, c) => (RANK[c.state] > RANK[worst] ? c.state : worst), "operational")
