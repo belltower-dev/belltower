@@ -55,8 +55,7 @@ Update this section in the same commit as the work it describes.
 3. An S3-compatible Store for the container adapter.
 4. `adapter-aws` and `examples/aws-sam`.
 
-Phase 1's done-when checks are below. Things built but not yet tried for
-real go in [untested.md](untested.md).
+Phase 1's done-when checks are below.
 
 ## Repository
 

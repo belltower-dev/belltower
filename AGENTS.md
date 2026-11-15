@@ -16,8 +16,7 @@ built next.
    fold it into the spec and plan first.
 3. Read the parts of [docs/spec.md](docs/spec.md) that item touches.
 4. When a piece is finished: tests and typecheck pass, the spec and the
-   plan's Status are updated, anything not tried for real is added to
-   [docs/untested.md](docs/untested.md), and it's committed.
+   plan's Status are updated, and it's committed.
 
 ## Rules
 
