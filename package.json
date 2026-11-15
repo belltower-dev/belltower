@@ -18,7 +18,7 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/adapter-container && tsc --noEmit -p examples/local"
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/adapter-container && tsc --noEmit -p packages/adapter-aws && tsc --noEmit -p examples/local"
   },
   "devDependencies": {
     "typescript": "5.9.3",

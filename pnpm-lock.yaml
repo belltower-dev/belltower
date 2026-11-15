@@ -183,6 +183,19 @@ importers:
         specifier: 20.19.43
         version: 20.19.43
 
+  packages/adapter-aws:
+    dependencies:
+      '@belltower/adapter-container':
+        specifier: workspace:*
+        version: link:../adapter-container
+      '@belltower/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: 20.19.43
+        version: 20.19.43
+
   packages/adapter-container:
     dependencies:
       '@belltower/core':

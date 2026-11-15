@@ -1,0 +1,29 @@
+{
+  "name": "@belltower/adapter-aws",
+  "version": "0.0.0",
+  "description": "Runs Belltower on AWS Lambda with S3, SES, SNS and SSM",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acrstatus/belltower.git",
+    "directory": "packages/adapter-aws"
+  },
+  "homepage": "https://github.com/acrstatus/belltower",
+  "bugs": {
+    "url": "https://github.com/acrstatus/belltower/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@belltower/adapter-container": "workspace:*",
+    "@belltower/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43"
+  }
+}

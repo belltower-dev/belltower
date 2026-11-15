@@ -56,9 +56,13 @@ Update this section in the same commit as the work it describes.
   `--store s3://bucket/prefix` in the CLI. Contract-tested against a fake
   S3; a live contract test runs when `BELLTOWER_S3_TEST_ENDPOINT` is set.
 
+- `adapter-aws`: Lambda handlers for checks, decide and a function URL;
+  S3 through `s3Store`, SSM secrets, SES email and SNS SMS, all over fetch
+  with SigV4. Tested against a fake AWS.
+
 **Next, in order:**
 
-1. `adapter-aws` and `examples/aws-sam`.
+1. `examples/aws-sam`: a deployable template and a demo config.
 
 Phase 1's done-when checks are below.
 

@@ -106,6 +106,31 @@ file and renamed into place, refusing keys with empty, `.` or `..` parts.
 The container adapter covers Google Cloud, Kubernetes and most other hosts,
 so three adapters reach nearly everything.
 
+#### The aws adapter
+
+Three Lambda handlers, made by `createHandlers(config)` in the
+deployment's own handler file, so the config is bundled into the function
+and validated once per cold start:
+
+- `checks`: scheduled every minute in every region; runs `runChecks` for
+  the function's region.
+- `decide`: scheduled every minute in one region.
+- `http`: behind a function URL; serves `handle()`.
+
+It calls S3, SSM, SES and SNS over `fetch` with the core's SigV4 signer, so
+the function carries no AWS SDK. Settings are environment variables:
+`BELLTOWER_REGIONS` (every region in the deployment), `BELLTOWER_REGION`
+(this one; default `AWS_REGION`), `BELLTOWER_BUCKET`,
+`BELLTOWER_BUCKET_REGION`, `BELLTOWER_BUCKET_PREFIX`,
+`BELLTOWER_SSM_PREFIX` and `BELLTOWER_EMAIL_FROM`. A missing setting or an
+invalid config fails the cold start with every problem listed in the log.
+
+Secrets are read from environment variables first, then from SSM
+Parameter Store under `BELLTOWER_SSM_PREFIX` (decrypted, cached five
+minutes). Email goes through SES v2 as plain text from a verified sender;
+SMS goes through SNS as transactional messages carrying the title and the
+first line of the alert. Each run logs one JSON line.
+
 ### Capabilities
 
 Each adapter declares what it supports (`tlsInspector`, `inbox`, `sms`,
