@@ -146,6 +146,28 @@ async function freePort(): Promise<number> {
   return port
 }
 
+describe("email notifiers in the CLI", () => {
+  const emailConfig = {
+    components: [{ name: "Website" }],
+    notifiers: [{ id: "ops", type: "email", to: ["ops@example.com"] }],
+    checks: [{ id: "home", type: "http", component: "Website", url: "https://www.example.com/" }],
+  }
+
+  it("stops with exit 3 and names the SMTP secrets when they aren't set", async () => {
+    const { run, err } = await workspace(emailConfig)
+    expect(await run("run", "decide")).toBe(3)
+    expect(err[0]).toContain("/notifiers/0: Email notifiers need the secrets BELLTOWER_SMTP_URL and BELLTOWER_EMAIL_FROM")
+  })
+
+  it("never prints the SMTP URL's password", async () => {
+    const { run, out, err, io } = await workspace(emailConfig)
+    io.env.BELLTOWER_SMTP_URL = "smtp://user:hunter2-secret@127.0.0.1:1"
+    io.env.BELLTOWER_EMAIL_FROM = "alerts@example.com"
+    expect(await run("run", "decide")).toBe(0)
+    expect([...out, ...err].join("\n")).not.toContain("hunter2-secret")
+  })
+})
+
 describe("belltower serve", () => {
   it("records heartbeat pings and answers health checks, until stopped", async () => {
     const { file, dir, io, out } = await workspace()

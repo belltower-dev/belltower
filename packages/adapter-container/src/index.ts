@@ -1,5 +1,6 @@
 export { localFolderStore } from "./local-folder-store.ts"
 export { nodeHttpClient } from "./node-http-client.ts"
+export { emailNotifier, smtpSettings, EMAIL_FROM_SECRET, SMTP_URL_SECRET, type SmtpSettings } from "./email-notifier.ts"
 export { serveFetch } from "./server.ts"
 export { everyMinute, type Schedule } from "./schedule.ts"
 export { CONTAINER_CAPABILITIES, EXIT, envSecrets, loadConfigFile, parseRegions } from "./setup.ts"

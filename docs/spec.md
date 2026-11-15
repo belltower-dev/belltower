@@ -464,8 +464,13 @@ it the same way, so it follows these rules:
 | `--port <n>` | `$PORT`, then 8080 |
 
 Secrets are environment variables, named in the config. On this adapter,
-notifiers are webhooks for now: an email or SMS notifier stops the command
-with exit code 3 and the notifier's path.
+notifiers are webhooks and email; an SMS notifier stops the command with
+exit code 3 and the notifier's path. Email goes by SMTP, set by two
+secrets: `BELLTOWER_SMTP_URL` (`smtp://user:password@smtp.example.com:587`,
+or `smtps://` for port 465) and `BELLTOWER_EMAIL_FROM`. A command that
+would send email checks both at startup and stops with exit code 3 if
+either is missing. Alert emails are plain text until the alert email
+design adds an HTML part.
 
 ## Releasing it
 

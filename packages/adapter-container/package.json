@@ -24,7 +24,8 @@
     "src"
   ],
   "dependencies": {
-    "@belltower/core": "workspace:*"
+    "@belltower/core": "workspace:*",
+    "nodemailer": "10.5.0"
   },
   "devDependencies": {
     "@types/node": "20.19.43"

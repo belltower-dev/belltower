@@ -50,13 +50,13 @@ Update this section in the same commit as the work it describes.
 - `examples/local`: the whole monitor on one machine against a demo
   service whose alerts arrive by webhook. Run for real: outages, a leak and
   a missed heartbeat alerted and recovered within the target times.
+- Email alerts from the container adapter by SMTP (nodemailer), set by
+  `BELLTOWER_SMTP_URL` and `BELLTOWER_EMAIL_FROM`. Plain text for now.
 
 **Next, in order:**
 
-1. Email from the container adapter. Needs an SMTP client: a dependency
-   such as nodemailer, which is waiting on a decision.
-2. An S3-compatible Store for the container adapter.
-3. `adapter-aws` and `examples/aws-sam`.
+1. An S3-compatible Store for the container adapter.
+2. `adapter-aws` and `examples/aws-sam`.
 
 Phase 1's done-when checks are below.
 

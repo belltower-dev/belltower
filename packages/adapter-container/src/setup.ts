@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { extname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { emailNotifier, smtpSettings } from "./email-notifier.ts"
 import {
   buildNotifiers,
   validateConfig,
@@ -104,18 +105,33 @@ export async function loadSetup(configPath: string, regionsFlag: string): Promis
   return { config: result.config, byRegion: result.byRegion, regions }
 }
 
-/** Notifiers for decide(). Email and SMS aren't available on this adapter yet. */
-export function containerNotifiers(config: Config, secrets: Secrets): Notifier[] {
+/** Notifiers for decide(): webhooks from the core, email by SMTP. SMS isn't available on this adapter. */
+export async function containerNotifiers(config: Config, secrets: Secrets): Promise<Notifier[]> {
+  const emailIndex = config.notifiers.findIndex((n) => n.type === "email")
+  let smtp: Awaited<ReturnType<typeof smtpSettings>> | null = null
+  if (emailIndex !== -1) {
+    smtp = await smtpSettings(secrets)
+    if ("missing" in smtp) {
+      throw new CliError(EXIT.configInvalid, [
+        {
+          code: "missing-secret",
+          path: `/notifiers/${emailIndex}`,
+          message: `Email notifiers need the secrets ${smtp.missing.join(" and ")}, which aren't set.`,
+          fix: "Set BELLTOWER_SMTP_URL to your SMTP server, such as smtp://user:password@smtp.example.com:587, and BELLTOWER_EMAIL_FROM to the sender address.",
+        },
+      ])
+    }
+  }
+  const settings = smtp && !("missing" in smtp) ? smtp : null
   try {
-    return buildNotifiers(config.notifiers, { secrets })
+    return buildNotifiers(config.notifiers, {
+      secrets,
+      others: settings ? { email: (c) => emailNotifier(c as Extract<typeof c, { type: "email" }>, settings) } : {},
+    })
   } catch (error) {
-    const index = config.notifiers.findIndex((n) => n.type !== "webhook")
+    const index = config.notifiers.findIndex((n) => n.type === "sms")
     throw new CliError(EXIT.configInvalid, [
-      {
-        code: "missing-capability",
-        path: `/notifiers/${Math.max(index, 0)}/type`,
-        message: (error as Error).message,
-      },
+      { code: "missing-capability", path: `/notifiers/${Math.max(index, 0)}/type`, message: (error as Error).message },
     ])
   }
 }

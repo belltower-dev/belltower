@@ -52,7 +52,8 @@ Options:
 
 Exit codes: 0 success, 2 usage error, 3 config invalid, 4 check failed,
 5 platform error, 6 not authorized, 1 anything unexpected.
-Secrets are read from environment variables named in the config.`
+Secrets are read from environment variables named in the config. Email
+notifiers also need BELLTOWER_SMTP_URL and BELLTOWER_EMAIL_FROM.`
 
 export interface Io {
   out(line: string): void
@@ -121,7 +122,7 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
         const setup = await loadSetup(configPath, regionsFlag)
         const store = withDryRun(platform(localFolderStore(storeDir)), dryRun)
         const would: Alert[] = []
-        const notifiers = dryRun ? recording(setup, io, would) : containerNotifiers(setup.config, envSecrets(io.env))
+        const notifiers = dryRun ? await recording(setup, io, would) : await containerNotifiers(setup.config, envSecrets(io.env))
         const result = await decide({ ...deps(setup, store, io), notifiers })
         report(dryRun ? { ...result, alerts: would } : result, describeDecision(result, dryRun ? would : null))
         return EXIT.ok
@@ -129,7 +130,7 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
       case "serve": {
         const setup = await loadSetup(configPath, regionsFlag)
         const store = platform(localFolderStore(storeDir))
-        const notifiers = containerNotifiers(setup.config, envSecrets(io.env))
+        const notifiers = await containerNotifiers(setup.config, envSecrets(io.env))
         return await serve(setup, store, notifiers, Number(values.port ?? io.env.PORT ?? 8080), values.schedule === true, io, json, signal)
       }
       default:
@@ -180,9 +181,9 @@ function withDryRun(store: Store, dryRun: boolean): Store {
   }
 }
 
-function recording(setup: Setup, io: Io, into: Alert[]): Notifier[] {
+async function recording(setup: Setup, io: Io, into: Alert[]): Promise<Notifier[]> {
   // One recorder per configured notifier, so the dry run shows each alert once per notifier that would send it.
-  return containerNotifiers(setup.config, envSecrets(io.env)).map((n) => ({ levels: n.levels, send: async (alert: Alert) => void into.push(alert) }))
+  return (await containerNotifiers(setup.config, envSecrets(io.env))).map((n) => ({ levels: n.levels, send: async (alert: Alert) => void into.push(alert) }))
 }
 
 async function serve(setup: Setup, store: Store, notifiers: Notifier[], port: number, schedule: boolean, io: Io, json: boolean, signal?: AbortSignal): Promise<number> {
