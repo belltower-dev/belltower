@@ -6,6 +6,16 @@ behavior, [docs/certificates.md](docs/certificates.md) before touching
 certificate or domain checks, and [docs/plan.md](docs/plan.md) for what's
 built next.
 
+## Start here
+
+1. Read the **Status** section at the top of [docs/plan.md](docs/plan.md):
+   what's done, what's next, in order. Pick up the first item under "Next"
+   unless you've been asked for something else.
+2. Read the parts of [docs/spec.md](docs/spec.md) that item touches.
+3. When a piece is finished: tests and typecheck pass, the spec and the
+   plan's Status are updated, anything not tried for real is added to
+   [docs/untested.md](docs/untested.md), and it's committed.
+
 ## Rules
 
 - **No deployment specifics.** Belltower is for everyone. Never put a
@@ -48,5 +58,8 @@ For docs, comments, alert text and the status page:
 
 ## Commits
 
-Conventional prefixes (`feat:`, `fix:`, `docs:`, `test:`, `chore:`), an
-imperative title under 60 characters, then a short list of what changed.
+- Work on `main`, no branches. Commit each finished piece and keep going.
+- Conventional prefixes (`feat:`, `fix:`, `docs:`, `test:`, `chore:`), an
+  imperative title under 60 characters, then a short list of what changed.
+- No co-author or tool attribution lines.
+- Don't push unless asked.

@@ -7,6 +7,37 @@ Phases 1 to 3 build Belltower on the `aws` adapter, with the `container`
 adapter for local runs and CI. Phase 4 adds Cloudflare and the deploy
 examples, and makes the repository public.
 
+## Status
+
+Update this section in the same commit as the work it describes.
+
+**Now:** phase 1.
+
+**Done:**
+
+- Workspace, TypeScript, Vitest, license, README.
+- Ports (`packages/core/src/ports.ts`): Store, Notifier, Secrets, Inbox,
+  TlsInspector, Clock, Capabilities.
+- `assignChecks` (`packages/core/src/capabilities.ts`): checks go to the
+  regions that can run them; configs no region can run are refused with a
+  fix. Tested.
+
+**Next, in order:**
+
+1. Config schema and validation (`config.ts`): the check fields in the
+   spec's "Checks" table with their defaults, components, regions,
+   thresholds, notifiers; errors that name the field. Calls `assignChecks`.
+2. `runChecks` for HTTP checks, with a fake `fetch` in tests.
+3. The local-folder Store and the Store contract suite.
+4. `decide` and its rules, pure and tested with recorded results.
+5. `handle` for heartbeats.
+6. `adapter-container`, then `examples/local`: the first thing that runs
+   end to end.
+7. `adapter-aws` and `examples/aws-sam`.
+
+Phase 1's done-when checks are below. Things built but not yet tried for
+real go in [untested.md](untested.md).
+
 ## Repository
 
 ```
