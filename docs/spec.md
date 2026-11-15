@@ -375,7 +375,13 @@ We're moving the API's database to a larger server.
 The copy is done; switching over now.
 ```
 
-- `type` is `maintenance` or `incident`. `component` works for one.
+- `type` is `maintenance`, `incident` or `notice`. `component` works for
+  one.
+- A notice is a standing message, such as a planned change, shown at the
+  top of the Status page while it's current. It has no effect on states,
+  alerts or availability. Its components are optional, and so are its
+  times: without `start` it shows from publication, without `end` until
+  it's removed.
 - Times are ISO times with a zone. `end` is required for maintenance and
   optional for an incident still open.
 - `detected` (incidents only) lists the detected incident ids the note
@@ -408,9 +414,9 @@ of the last build; with it, the status page refreshes from
 
 | Page | Shows |
 | --- | --- |
-| Status | The overall status line with "Last updated" and its time; open incidents and maintenance in progress; components in their groups, each with its state, 90-day bars and response time |
+| Status | The overall status line with "Last updated" and its time; current notices; open incidents and maintenance in progress; components in their groups, each with its state, 90-day bars and response time |
 | Maintenance | Upcoming and current maintenance |
-| History | Every day of the last 90, newest first, with its incidents and maintenance, or "No incidents reported" on a quiet day ("No incidents reported today" for today) |
+| History | Every day of the last 90, newest first, under a heading for each month and one for each day with its count of incidents; each day lists its incidents and maintenance, or "No incidents reported" on a quiet day ("No incidents reported today" for today) |
 | One per incident | A permanent address: title, stage, impact, duration, components affected, and every update with its stage and time |
 
 Plus `feed.atom`, `feed.rss` and `feed.json` (JSON Feed) of incidents and
@@ -444,10 +450,15 @@ Degraded performance, Maintenance, Operational.
   state, and its uptime for 90 days.
 - **90-day bars,** one per day. Days before monitoring began show as "No
   data", and the legend includes it. Each bar has a text label (date, uptime
-  percentage, incidents), and the same figures are in a table. Under the
-  bars, this month's availability next to the target.
+  percentage, time degraded, incidents), such as "14 November: 99.9% up, 6
+  hours degraded, 1 incident", and the same figures are in a table. A day
+  that was degraded but never down shows as degraded, in words as well as
+  color. Under the bars, this month's availability next to the target.
 - **Response time:** a chart of the last 24 hours and the last 90 days,
-  with the same figures in a table.
+  with the same figures in a table. `decide()` keeps the figures as it
+  goes: hourly and daily medians from the public checks' results, and the
+  minutes each day a component was degraded. Degraded minutes don't count
+  against availability.
 - Heartbeat, certificate and domain checks are usually internal
   (`public: false`) and don't appear.
 
@@ -482,7 +493,7 @@ From the config's `page` section:
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `name`, `link` | The deployment's name and home page | |
+| `name`, `link` | The deployment's name and home page. With `link`, the header also shows a visible "Go to {name}" link | |
 | `logo`, `logoDark` | Image addresses, each with required `alt` text | the name in text |
 | `favicon` | Image address | none |
 | `accent` | A color, such as `#0b6bcb` | a built-in blue |

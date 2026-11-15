@@ -296,8 +296,6 @@ protected against bots without a visual puzzle (puzzles fail accessibility).
 - An event log on History: every update of every incident in one list,
   newest first, with its time, stage and incident.
 - The age of each incident beside its date ("9 days ago").
-- Degraded minutes per day in the bars, an optional notice at the top of
-  the page, History grouped by month, and header links.
 
 **Later**
 
