@@ -47,13 +47,16 @@ Update this section in the same commit as the work it describes.
   `serve --schedule`) following the CLI rules in the spec's "The command
   line". Tested.
 
+- `examples/local`: the whole monitor on one machine against a demo
+  service whose alerts arrive by webhook. Run for real: outages, a leak and
+  a missed heartbeat alerted and recovered within the target times.
+
 **Next, in order:**
 
-1. `examples/local`: the first thing that runs end to end.
-2. Email from the container adapter. Needs an SMTP client: a dependency
+1. Email from the container adapter. Needs an SMTP client: a dependency
    such as nodemailer, which is waiting on a decision.
-3. An S3-compatible Store for the container adapter.
-4. `adapter-aws` and `examples/aws-sam`.
+2. An S3-compatible Store for the container adapter.
+3. `adapter-aws` and `examples/aws-sam`.
 
 Phase 1's done-when checks are below.
 
@@ -95,7 +98,7 @@ examples/
 
 ### Done when
 
-- [ ] The local example runs every minute against a demo service and a
+- [x] The local example runs every minute against a demo service and a
       fake notifier.
 - [ ] On AWS with three regions, every region writes a results file every
       minute for 24 hours.

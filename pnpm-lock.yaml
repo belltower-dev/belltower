@@ -173,6 +173,16 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(vite@8.3.8)
 
+  examples/local:
+    dependencies:
+      '@belltower/adapter-container':
+        specifier: workspace:*
+        version: link:../../packages/adapter-container
+    devDependencies:
+      '@types/node':
+        specifier: 20.19.43
+        version: 20.19.43
+
   packages/adapter-container:
     dependencies:
       '@belltower/core':

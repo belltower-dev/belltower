@@ -1,0 +1,16 @@
+{
+  "name": "belltower-example-local",
+  "private": true,
+  "description": "The whole Belltower monitor on one machine, watching a demo service",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "start": "node start.ts"
+  },
+  "dependencies": {
+    "@belltower/adapter-container": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43"
+  }
+}

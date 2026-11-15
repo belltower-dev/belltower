@@ -1,0 +1,38 @@
+{
+  "components": [
+    { "name": "Shop" },
+    { "name": "Accounts" },
+    { "name": "Nightly jobs" }
+  ],
+  "notifiers": [
+    { "id": "demo-alerts", "type": "webhook", "secret": "ALERT_WEBHOOK_URL" }
+  ],
+  "checks": [
+    {
+      "id": "shop-home",
+      "type": "http",
+      "component": "Shop",
+      "url": "http://localhost:3000/",
+      "expectKeyword": "Welcome to the demo shop",
+      "slowSeconds": 2,
+      "timeoutSeconds": 5
+    },
+    {
+      "id": "account-private",
+      "type": "http",
+      "component": "Accounts",
+      "url": "http://localhost:3000/account",
+      "expectStatus": 401,
+      "rejectKeyword": "Account balance"
+    },
+    {
+      "id": "demo-job",
+      "type": "heartbeat",
+      "component": "Nightly jobs",
+      "period": "1m",
+      "grace": "1m",
+      "token": "DEMO_JOB_TOKEN",
+      "public": false
+    }
+  ]
+}
