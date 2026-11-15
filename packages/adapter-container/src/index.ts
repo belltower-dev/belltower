@@ -1,2 +1,6 @@
 export { localFolderStore } from "./local-folder-store.ts"
 export { nodeHttpClient } from "./node-http-client.ts"
+export { serveFetch } from "./server.ts"
+export { everyMinute, type Schedule } from "./schedule.ts"
+export { CONTAINER_CAPABILITIES, EXIT, envSecrets, loadConfigFile, parseRegions } from "./setup.ts"
+export { CLI_FORMAT, runCli, type Io } from "./cli.ts"

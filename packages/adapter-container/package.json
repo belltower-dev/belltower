@@ -16,6 +16,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "bin": {
+    "belltower": "./src/cli.ts"
+  },
   "files": [
     "src"
   ],

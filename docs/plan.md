@@ -39,12 +39,21 @@ Update this section in the same commit as the work it describes.
 - Heartbeats (`packages/core/src/heartbeat.ts`): `handle` records success
   and failure pings; `decide` judges them and alerts on a miss or a
   failure. Tested.
+- Structured config issues (code, JSON pointer, message, fix) and a
+  webhook notifier in the core.
+- `adapter-container` so far: local-folder Store, `nodeHttpClient` (skips
+  TLS verification on request, reports DNS, connect and TLS times), and the
+  `belltower` CLI (`validate`, `run checks`, `run decide`, `serve`,
+  `serve --schedule`) following the CLI rules in the spec's "The command
+  line". Tested.
 
 **Next, in order:**
 
-1. The rest of `adapter-container`, then `examples/local`: the first thing
-   that runs end to end.
-2. `adapter-aws` and `examples/aws-sam`.
+1. `examples/local`: the first thing that runs end to end.
+2. Email from the container adapter. Needs an SMTP client: a dependency
+   such as nodemailer, which is waiting on a decision.
+3. An S3-compatible Store for the container adapter.
+4. `adapter-aws` and `examples/aws-sam`.
 
 Phase 1's done-when checks are below. Things built but not yet tried for
 real go in [untested.md](untested.md).

@@ -26,6 +26,8 @@ From `tsconfig.base.json`:
 - `exactOptionalPropertyTypes`: an optional field can be absent but can't be
   set to `undefined` unless its type says so.
 - `noUncheckedIndexedAccess`: indexing a record or array gives `T | undefined`.
+- `erasableSyntaxOnly`: no enums, namespaces or constructor parameter
+  properties. Node runs the `.ts` source by stripping types, with no build.
 - `packages/core/tsconfig.json` sets `"types": []`, so Node globals are not
   visible there. If something only typechecks with `@types/node`, it belongs
   in an adapter.

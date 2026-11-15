@@ -249,6 +249,10 @@ with a token. Phase 3.
 
 ## Moved into the spec and plan
 
+- 10. CLI rules (flags only, `--json` with codes, JSON pointers and fixes,
+  stable exit codes, `--dry-run`, no secret values): the spec's "The
+  command line", built in the container adapter. `validate` is there too.
+  The other commands are still to come in their phases.
 - 5. Timing breakdown: results, the `timingBreakdown` capability and the
   HttpClient port. Incidents keep each region's first failure, timing
   included; showing it to people comes with the status page and alert

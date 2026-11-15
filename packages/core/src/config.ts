@@ -205,7 +205,8 @@ export function validateConfig(input: unknown, regions: readonly Region[]): Conf
     issues.add("", "", "invalid", "The config must be an object with components, checks and notifiers.")
     return issues.failure()
   }
-  const root = new Fields(input, "", "", issues, ["components", "checks", "notifiers", "thresholds"])
+  // $schema lets editors and agents validate the file as they write it.
+  const root = new Fields(input, "", "", issues, ["$schema", "components", "checks", "notifiers", "thresholds"])
 
   const components = list(root, "components", "add at least one component.", (f) => readComponent(f))
   const notifiers = list(root, "notifiers", "add at least one notifier, or no alert can be sent.", (f) => readNotifier(f))
@@ -471,16 +472,22 @@ function show(value: unknown): string {
 class Fields {
   private readonly read = new Set<string>()
 
-  constructor(
-    private readonly obj: Record<string, unknown>,
-    /** Readable location, such as checks[0] (home). */
-    private readonly where: string,
-    /** JSON pointer to this object. */
-    private readonly at: string,
-    readonly issues: Issues,
-    /** Keys accepted beyond those read, for typo suggestions. */
-    private readonly known: readonly string[] = [],
-  ) {}
+  private readonly obj: Record<string, unknown>
+  /** Readable location, such as checks[0] (home). */
+  private readonly where: string
+  /** JSON pointer to this object. */
+  private readonly at: string
+  readonly issues: Issues
+  /** Keys accepted beyond those read, for typo suggestions. */
+  private readonly known: readonly string[]
+
+  constructor(obj: Record<string, unknown>, where: string, at: string, issues: Issues, known: readonly string[] = []) {
+    this.obj = obj
+    this.where = where
+    this.at = at
+    this.issues = issues
+    this.known = known
+  }
 
   has(key: string): boolean {
     return this.obj[key] !== undefined

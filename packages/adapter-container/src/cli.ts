@@ -1,0 +1,252 @@
+#!/usr/bin/env node
+import { realpathSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+import { parseArgs } from "node:util"
+import {
+  decide,
+  handle,
+  runChecks,
+  VERSION,
+  type Alert,
+  type DecideReport,
+  type Notifier,
+  type ResultsFile,
+  type Store,
+} from "@belltower/core"
+import { localFolderStore } from "./local-folder-store.ts"
+import { nodeHttpClient } from "./node-http-client.ts"
+import { everyMinute } from "./schedule.ts"
+import { serveFetch } from "./server.ts"
+import { CliError, containerNotifiers, envSecrets, EXIT, loadSetup, type Setup } from "./setup.ts"
+
+/*
+ * The `belltower` command for the container adapter (docs/spec.md, "The
+ * command line"). Every input is a flag or an environment variable, nothing
+ * prompts, --json prints a versioned shape, and exit codes are stable.
+ */
+
+export const CLI_FORMAT = "belltower.cli/1"
+
+const HELP = `belltower ${VERSION}
+
+Usage: belltower <command> [options]
+
+Commands:
+  validate                    Check the config against the schema and the regions
+  run checks --region <name>  Run one region's checks once and write its results file
+  run decide                  Judge recent results, open and resolve incidents, send alerts
+  serve                       Answer heartbeat pings over HTTP
+  serve --schedule            Also run every region's checks and decide each minute (one machine)
+
+Options:
+  --config <file>   Config file (.json, .js, .mjs or .ts)
+                    Default: $BELLTOWER_CONFIG, or belltower.config.json
+  --regions <list>  The deployment's regions, separated by commas
+                    Default: $BELLTOWER_REGIONS, or "local"
+  --store <dir>     Folder for stored results, incidents and status
+                    Default: $BELLTOWER_STORE, or ./belltower-data
+  --port <n>        serve: the port. Default: $PORT, or 8080
+  --dry-run         run: do the work, but write nothing and send no alerts
+  --json            Print JSON (format ${CLI_FORMAT})
+  --help            Show this help
+
+Exit codes: 0 success, 2 usage error, 3 config invalid, 4 check failed,
+5 platform error, 6 not authorized, 1 anything unexpected.
+Secrets are read from environment variables named in the config.`
+
+export interface Io {
+  out(line: string): void
+  err(line: string): void
+  env: NodeJS.ProcessEnv
+}
+
+const OPTIONS = {
+  config: { type: "string" },
+  regions: { type: "string" },
+  store: { type: "string" },
+  region: { type: "string" },
+  port: { type: "string" },
+  schedule: { type: "boolean" },
+  "dry-run": { type: "boolean" },
+  json: { type: "boolean" },
+  help: { type: "boolean" },
+} as const
+
+/** Runs one command and returns its exit code. `serve` resolves once the server stops. */
+export async function runCli(argv: readonly string[], io: Io, signal?: AbortSignal): Promise<number> {
+  let json = argv.includes("--json")
+  let command = ""
+  try {
+    let parsed
+    try {
+      parsed = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true, strict: true })
+    } catch (error) {
+      throw usage((error as Error).message.replace(/\. To specify.*$/s, "."), "Run belltower --help for the commands and options.")
+    }
+    const { values, positionals } = parsed
+    json = values.json === true
+    command = positionals.join(" ")
+    if (values.help || command === "") {
+      io.out(HELP)
+      return values.help ? EXIT.ok : EXIT.usage
+    }
+
+    const configPath = values.config ?? io.env.BELLTOWER_CONFIG ?? "belltower.config.json"
+    const regionsFlag = values.regions ?? io.env.BELLTOWER_REGIONS ?? "local"
+    const storeDir = values.store ?? io.env.BELLTOWER_STORE ?? "belltower-data"
+    const dryRun = values["dry-run"] === true
+    const report = (result: unknown, human: string) => io.out(json ? JSON.stringify({ format: CLI_FORMAT, command, ok: true, result }) : human)
+
+    switch (command) {
+      case "validate": {
+        const setup = await loadSetup(configPath, regionsFlag)
+        report(
+          { checks: setup.config.checks.length, byRegion: setup.byRegion },
+          `The config is valid: ${setup.config.checks.length} checks across ${setup.regions.map((r) => r.name).join(", ")}.`,
+        )
+        return EXIT.ok
+      }
+      case "run checks": {
+        if (!values.region) throw usage("run checks needs --region.", "Pass the region this run is for, such as --region us.")
+        const setup = await loadSetup(configPath, regionsFlag)
+        if (!setup.byRegion[values.region]) {
+          throw usage(`"${values.region}" isn't one of the regions: ${Object.keys(setup.byRegion).join(", ")}.`, "Pass a region named in --regions.")
+        }
+        const store = withDryRun(platform(localFolderStore(storeDir)), dryRun)
+        const file = await runChecks(values.region, { ...deps(setup, store, io), http: nodeHttpClient() })
+        report(file, describeResults(file, dryRun))
+        return EXIT.ok
+      }
+      case "run decide": {
+        const setup = await loadSetup(configPath, regionsFlag)
+        const store = withDryRun(platform(localFolderStore(storeDir)), dryRun)
+        const would: Alert[] = []
+        const notifiers = dryRun ? recording(setup, io, would) : containerNotifiers(setup.config, envSecrets(io.env))
+        const result = await decide({ ...deps(setup, store, io), notifiers })
+        report(dryRun ? { ...result, alerts: would } : result, describeDecision(result, dryRun ? would : null))
+        return EXIT.ok
+      }
+      case "serve": {
+        const setup = await loadSetup(configPath, regionsFlag)
+        const store = platform(localFolderStore(storeDir))
+        const notifiers = containerNotifiers(setup.config, envSecrets(io.env))
+        return await serve(setup, store, notifiers, Number(values.port ?? io.env.PORT ?? 8080), values.schedule === true, io, json, signal)
+      }
+      default:
+        throw usage(`"${command}" isn't a command.`, "Run belltower --help for the commands.")
+    }
+  } catch (error) {
+    const known = error instanceof CliError
+    const exitCode = known ? error.exitCode : EXIT.unexpected
+    const issues = known ? error.issues : [{ code: "unexpected", path: "", message: error instanceof Error ? error.message : String(error) }]
+    if (json) io.out(JSON.stringify({ format: CLI_FORMAT, command, ok: false, exitCode, errors: issues }))
+    else for (const i of issues) io.err(`${i.path ? `${i.path}: ` : ""}${i.message}${i.fix ? ` ${i.fix}` : ""}`)
+    return exitCode
+  }
+}
+
+function usage(message: string, fix: string): CliError {
+  return new CliError(EXIT.usage, [{ code: "usage", path: "", message, fix }])
+}
+
+function deps(setup: Setup, store: Store, io: Io) {
+  return { config: setup.config, byRegion: setup.byRegion, store, secrets: envSecrets(io.env), clock: { now: () => new Date() } }
+}
+
+/** Store failures are platform errors (exit 5), not bugs. */
+function platform(store: Store): Store {
+  const wrap =
+    <A extends unknown[], R>(f: (...a: A) => Promise<R>) =>
+    async (...a: A): Promise<R> => {
+      try {
+        return await f(...a)
+      } catch (error) {
+        throw new CliError(EXIT.platformError, [
+          { code: "store-error", path: "", message: `The store failed: ${(error as Error).message}`, fix: "Check that the --store folder exists and can be written." },
+        ])
+      }
+    }
+  return { get: wrap(store.get.bind(store)), put: wrap(store.put.bind(store)), list: wrap(store.list.bind(store)) }
+}
+
+/** Reads from the real store; keeps writes in memory, so a dry run changes nothing. */
+function withDryRun(store: Store, dryRun: boolean): Store {
+  if (!dryRun) return store
+  const written = new Map<string, string>()
+  return {
+    get: async (key) => written.get(key) ?? store.get(key),
+    put: async (key, body) => void written.set(key, body),
+    list: async (prefix) => [...new Set([...(await store.list(prefix)), ...[...written.keys()].filter((k) => k.startsWith(prefix))])].sort(),
+  }
+}
+
+function recording(setup: Setup, io: Io, into: Alert[]): Notifier[] {
+  // One recorder per configured notifier, so the dry run shows each alert once per notifier that would send it.
+  return containerNotifiers(setup.config, envSecrets(io.env)).map((n) => ({ levels: n.levels, send: async (alert: Alert) => void into.push(alert) }))
+}
+
+async function serve(setup: Setup, store: Store, notifiers: Notifier[], port: number, schedule: boolean, io: Io, json: boolean, signal?: AbortSignal): Promise<number> {
+  const log = (event: string, detail: Record<string, unknown>, human: string) =>
+    io.out(json ? JSON.stringify({ format: CLI_FORMAT, command: "serve", event, at: new Date().toISOString(), ...detail }) : human)
+  const secrets = envSecrets(io.env)
+  const server = serveFetch(
+    (request) => handle(request, { config: setup.config, store, secrets, clock: { now: () => new Date() } }),
+    (error) => log("error", { message: String(error) }, `Error answering a request: ${String(error)}`),
+  )
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", (error) => reject(new CliError(EXIT.platformError, [{ code: "listen-failed", path: "--port", message: `Couldn't listen on port ${port}: ${error.message}`, fix: "Pick a free port with --port." }])))
+    server.listen(port, resolve)
+  })
+  log("listening", { port, schedule }, `Listening on port ${port}${schedule ? ", running checks and decide every minute" : ""}.`)
+
+  const timer = schedule
+    ? everyMinute(
+        async (at) => {
+          const http = nodeHttpClient()
+          try {
+            const files = await Promise.all(setup.regions.map((r) => runChecks(r.name, { ...deps(setup, store, io), http })))
+            for (const file of files) log("checks", { region: file.region, results: file.results }, describeResults(file, false))
+            const result = await decide({ ...deps(setup, store, io), notifiers })
+            log("decide", { ...result }, describeDecision(result, null))
+          } catch (error) {
+            log("error", { message: (error as Error).message }, `The ${at.toISOString().slice(11, 16)} run failed: ${(error as Error).message}`)
+          }
+        },
+        (at) => log("skipped", { minute: at.toISOString() }, `Skipped ${at.toISOString().slice(11, 16)}: the previous minute's run is still going.`),
+      )
+    : null
+
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      timer?.stop()
+      server.close(() => resolve())
+    }
+    if (signal?.aborted) stop()
+    signal?.addEventListener("abort", stop, { once: true })
+  })
+  return EXIT.ok
+}
+
+function describeResults(file: ResultsFile, dryRun: boolean): string {
+  const failed = file.results.filter((r) => !r.ok)
+  const lines = [`${file.region}: ${file.results.length} checks, ${file.results.length - failed.length} passed, ${failed.length} failed${dryRun ? " (dry run, nothing written)" : ""}.`]
+  for (const r of failed) lines.push(`  ${r.id}: ${r.message ?? r.failure}`)
+  return lines.join("\n")
+}
+
+function describeDecision(report: DecideReport, wouldSend: Alert[] | null): string {
+  const lines = [Object.entries(report.states).map(([id, s]) => `${id} ${s}`).join(", ") || "No checks to judge."]
+  for (const i of report.opened) lines.push(`Opened ${i.id}: ${i.summary.split("\n")[0]}`)
+  for (const i of report.resolved) lines.push(`Resolved ${i.id}.`)
+  if (wouldSend) for (const a of wouldSend) lines.push(`Would send: ${a.title}`)
+  for (const p of report.problems) lines.push(`Problem: ${p}`)
+  return lines.join("\n")
+}
+
+const isMain = process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) {
+  const controller = new AbortController()
+  for (const sig of ["SIGINT", "SIGTERM"] as const) process.once(sig, () => controller.abort())
+  const code = await runCli(process.argv.slice(2), { out: (l) => console.log(l), err: (l) => console.error(l), env: process.env }, controller.signal)
+  process.exitCode = code
+}

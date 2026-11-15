@@ -428,6 +428,43 @@ the overall state, each component's name and state, and the open incidents
 (id, component, start). Only public checks count toward it. Nothing else
 from the config, the results or the incidents is copied into it.
 
+## The command line
+
+The container adapter installs a `belltower` command. People and agents use
+it the same way, so it follows these rules:
+
+- Every input is a flag or an environment variable. Nothing prompts.
+- `--json` prints one JSON object per result, with
+  `"format": "belltower.cli/1"`, the `command`, `ok`, and either `result` or
+  `errors`. Each error has a stable `code`, a `path` (a JSON pointer into the
+  config, or the flag it's about), a `message`, and a `fix` when the
+  message doesn't already say what to do.
+- Exit codes are stable: 0 success, 2 usage error, 3 config invalid, 4 check
+  failed, 5 platform error (the store or the network), 6 not authorized, 1
+  anything unexpected.
+- Commands that change something take `--dry-run`, which does the work but
+  writes nothing and sends no alerts, and shows what it would have sent.
+- Output names secrets; it never prints their values.
+
+| Command | Does |
+| --- | --- |
+| `belltower validate` | Checks the config against the schema and the regions |
+| `belltower run checks --region <name>` | Runs one region's checks once and writes its results file. For a scheduler (Kubernetes `CronJob`, Cloud Scheduler) to call every minute |
+| `belltower run decide` | Runs `decide()` once. Called every minute in one place |
+| `belltower serve` | Serves `handle()` over HTTP, plus `GET /healthz` |
+| `belltower serve --schedule` | Also runs every region's checks and `decide()` at the top of each minute, for a single machine. A minute whose previous run hasn't finished is skipped |
+
+| Option | Default |
+| --- | --- |
+| `--config <file>`: `.json` (a `$schema` key is allowed), `.js`, `.mjs` or `.ts` with the config as its default export | `$BELLTOWER_CONFIG`, then `belltower.config.json` |
+| `--regions <a,b>`: the deployment's regions | `$BELLTOWER_REGIONS`, then `local` |
+| `--store <dir>`: the local-folder Store | `$BELLTOWER_STORE`, then `./belltower-data` |
+| `--port <n>` | `$PORT`, then 8080 |
+
+Secrets are environment variables, named in the config. On this adapter,
+notifiers are webhooks for now: an email or SMS notifier stops the command
+with exit code 3 and the notifier's path.
+
 ## Releasing it
 
 - **Repository:** public, holding only the project. Each deployment keeps its
