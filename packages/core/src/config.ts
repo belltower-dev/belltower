@@ -3,8 +3,9 @@ import type { AlertLevel } from "./ports.ts"
 
 /*
  * The deployment's config (docs/spec.md, "Checks", "The rest of the config"
- * and "Validation"): checks, components, notifiers and thresholds. `validateConfig` fills in defaults,
- * names the field behind every error, and assigns checks to regions.
+ * and "Validation"): checks, components, notifiers and thresholds.
+ * `validateConfig` fills in defaults, names the field behind every error,
+ * and assigns checks to regions.
  */
 
 export type Severity = "normal" | "critical"
