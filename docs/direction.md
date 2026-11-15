@@ -373,6 +373,12 @@ becoming an on-call scheduling product.
   and maintenance notes (alt text, link text, heading levels, table
   headers) are in the spec's "Notes", from `belltower notes push`. The
   logo's alt text and the wording rules come with `buildPage()`.
+- 11. The phase 2 parts (pages, five states, groups, incident stages and
+  impact, daily history, themes, local time, feeds, `summary.json`): the
+  spec's "Status page" and "Notes". Subscriptions by email, webhook and
+  Slack wait for phases 3 and 4.
+- 12. Branding from config with the contrast check: the spec's "Status
+  page", under "Branding". The email sender in config comes with phase 3.
 - 7. Public status API, in part: JSON Schemas for `status.json`,
   `history.json` and the monthly report, with the compatibility rule, are
   in the spec's "Storage". CORS, caching and the embedding docs come with

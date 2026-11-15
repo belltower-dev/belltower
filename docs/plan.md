@@ -77,7 +77,14 @@ real AWS deployment of `examples/aws-sam`.
 
 1. Deploy `examples/aws-sam` to three regions and run phase 1's remaining
    done-when checks.
-2. `buildPage()`. Its design is shared for review before it's built.
+2. Priorities P1 to P5 and incident keys, replacing `severity` and
+   `critical` in the config and one-incident-per-check in `decide`.
+3. What the status page reads: five component states, component groups,
+   descriptions and links, the `page` config with its branding, update
+   stages and impact in notes, a response-time aggregate, `summary.json`
+   and the feeds.
+4. `buildPage()`, following the spec's "Status page". Its design is shared
+   for review before it's built.
 
 Phase 1's done-when checks are below.
 
@@ -205,5 +212,6 @@ examples/
 - A scripted browser check (sign-in and similar flows), which needs a
   headless browser on the platform.
 - Status page subscriptions by email.
-- More notifiers (Slack and Teams beyond webhooks, PagerDuty) as people ask.
+- More notifiers (Slack and Teams beyond webhooks, paging services) as
+  people ask.
 - Ping, TCP and DNS check types.

@@ -13,9 +13,8 @@ Companion documents:
   every platform.
 - [plan.md](plan.md): the build order.
 
-The feature set follows the uptime part of hosted products such as Better
-Stack (monitor settings, heartbeats, incidents, status pages, reporting), cut
-to what a small team needs.
+The feature set covers what a small team needs from an uptime service:
+monitor settings, heartbeats, incidents, status pages and reporting.
 
 ## What it must do
 
@@ -33,14 +32,15 @@ to what a small team needs.
 
 ## What it won't do
 
-- On-call schedules, call routing, escalation across a team. One alert list.
+- On-call rotations and calendars, teams, routing rules. Alerts escalate
+  down one short list of contacts at most.
 - Phone call alerts. Email, SMS and webhooks.
 - Logs, traces, metrics, error tracking, session replay. Use an APM tool.
 - AI incident investigation, a post-mortem tool. Post-mortems are Markdown in
   the deployment's repository.
 - Ping, TCP, UDP, SMTP, POP, IMAP and DNS monitor types in the first version.
-- Status page subscriptions by email, SMS or webhook in the first version. An
-  Atom feed only.
+- Status page subscriptions by SMS, unless deployments ask. Feeds come
+  first, then email and webhooks, then Slack.
 
 ## Architecture
 
@@ -190,7 +190,8 @@ Besides `checks`, a config has:
 
 | Section | Fields | Default |
 | --- | --- | --- |
-| `components` | `name`; `critical` (down alerts for its checks also go by SMS); `target` (monthly availability percentage, such as 99.9); `credits` (tiers such as `[{ "below": 99.9, "percent": 10 }, { "below": 99, "percent": 25 }]`) | `critical: false`, no target, no credits |
+| `components` | `name`; `critical` (down alerts for its checks also go by SMS); `target` (monthly availability percentage, such as 99.9); `credits` (tiers such as `[{ "below": 99.9, "percent": 10 }, { "below": 99, "percent": 25 }]`); `group` (the heading it's listed under on the page, such as "Europe" or "Storage"); `description` (one line); `link` (the thing itself, such as the web app's address) | `critical: false`, no target, no credits, no group |
+| `page` | The status page and its branding (see "Status page") | |
 | `notifiers` | `id`; `type` (`email`, `sms`, `webhook`); `to` (email addresses, or phone numbers in international format such as `+15555550100`); `secret` (webhook only: the name of the secret holding the URL); `levels` | `levels`: `warn`, `alert`, `critical`, or only `critical` for SMS |
 | `thresholds` | `confirmRegions`, `confirmMinutes`, `degradedMinutes`, `recoverRegions`, `recoverMinutes`, `repeatAlertMinutes` | 2, 2, 5, 2, 3, 30 (see "Deciding that something is down") |
 
@@ -379,8 +380,13 @@ The copy is done; switching over now.
   optional for an incident still open.
 - `detected` (incidents only) lists the detected incident ids the note
   explains, separated by commas.
-- Each level-two heading `## yyyy-mm-dd hh:mm UTC` starts an update; the
-  text before the first is the summary.
+- `impact` (incidents only) is `none`, `minor`, `major` or `critical`;
+  default `minor`.
+- Each level-two heading `## yyyy-mm-dd hh:mm UTC` starts an update, with
+  an optional stage after the time: `## 2026-11-20 02:40 UTC Identified`.
+  Stages are Investigating, Identified, Monitoring, Resolved and Update;
+  without one, an update is an Update. The text before the first update
+  is the summary.
 - The note's id is its file name without `.md`.
 
 `belltower notes push --dir <folder>` checks every note against the config
@@ -392,24 +398,113 @@ without header cells. `decide()` reads `public/notes.json` every minute.
 
 ## Status page
 
-- **Components** as configured. Heartbeat, certificate and domain checks are
-  usually internal (`public: false`).
-- **Overall state:** the worst state of any component.
-- **Component states,** in words, never color alone: Operational, Degraded,
-  Down, Maintenance.
-- **History:** 90 days per component, one bar a day.
-  - Each bar has a text label: date, uptime percentage, incidents.
-  - Under the bars: this month's availability next to the configured target.
-- **Incidents:** open first, then the last 90 days, each with its updates.
-  Maintenance announcements above.
-- **Feed:** Atom feed of incidents and maintenance.
-- **Built** as static HTML by `buildPage()`, deployable to any static host
-  (GitHub Pages, S3, R2, Cloud Storage, Netlify). It reads
-  `public/status.json` and `public/history.json`. Without JavaScript it shows
-  the state as of the last build.
-- **Accessible:** WCAG 2.1 AA, as for everything Belltower shows people
-  ("Accessibility", below).
-- **Branding:** name, logo, link and colors from config.
+Built as static HTML by `buildPage()` from the `public/` files alone,
+never the config, and deployable to any static host (GitHub Pages, S3, R2,
+Cloud Storage, Netlify). Without JavaScript every page shows the state as
+of the last build; with it, the status page refreshes from
+`public/status.json`. WCAG 2.1 AA throughout ("Accessibility", below).
+
+### Pages
+
+| Page | Shows |
+| --- | --- |
+| Status | The overall status line with "Last updated" and its time; open incidents and maintenance in progress; components in their groups, each with its state, 90-day bars and response time |
+| Maintenance | Upcoming and current maintenance |
+| History | Every day of the last 90, newest first, with its incidents and maintenance, or "No incidents reported" on a quiet day ("No incidents reported today" for today) |
+| One per incident | A permanent address: title, stage, impact, duration, components affected, and every update with its stage and time |
+
+Plus `feed.atom` and `feed.rss` (incidents and maintenance) and
+`summary.json` beside the pages.
+
+### States
+
+Each component has one of five states, always in words, never color alone,
+with a legend that lists them:
+
+| State | When |
+| --- | --- |
+| Operational | Nothing below applies |
+| Degraded performance | A public check in the component is degraded |
+| Partial outage | Some of the component's public checks are down |
+| Major outage | All of the component's public checks are down |
+| Maintenance | A maintenance note covers the component now, and no incident was open when it began |
+
+A check counts as down only when it's confirmed ("Deciding that something
+is down"), so one region failing alone changes nothing. The overall state
+is the worst component state, ordered Major outage, Partial outage,
+Degraded performance, Maintenance, Operational.
+
+### Components
+
+- Listed in their `group`, in config order. A group is a section with a
+  heading and a button that expands and collapses it, saying what it does
+  ("Hide Europe", "Show Europe") with `aria-expanded`.
+- Each shows its name (a link when `link` is set), its `description`, its
+  state, and its uptime for 90 days.
+- **90-day bars,** one per day. Each bar has a text label (date, uptime
+  percentage, incidents), and the same figures are in a table. Under the
+  bars, this month's availability next to the target.
+- **Response time:** a chart of the last 24 hours and the last 90 days,
+  with the same figures in a table.
+- Heartbeat, certificate and domain checks are usually internal
+  (`public: false`) and don't appear.
+
+### Incidents
+
+- Open incidents first, then the last 90 days.
+- **Stage:** each update has one, as a word: Investigating, Identified,
+  Monitoring, Resolved, or Update.
+- **Impact:** None, Minor, Major or Critical. "None" is for components
+  named for context only.
+- **Updates** newest first, each with its stage and time.
+- **Duration** from start to end, or "Ongoing".
+- A detected incident with no note shows as "Detected outage", with the
+  checks' components and the time it began.
+
+### Times
+
+Every time is shown in the viewer's time zone with UTC alongside, such as
+"14:40 (13:40 UTC)". Without JavaScript, times show in UTC.
+
+### Themes
+
+System, light and dark, following the viewer's setting unless they choose
+one; the page's `theme` sets the default. The choice is a native control
+and is remembered on that device.
+
+### Branding
+
+From the config's `page` section:
+
+| Field | Meaning | Default |
+| --- | --- | --- |
+| `name`, `link` | The deployment's name and home page | |
+| `logo`, `logoDark` | Image addresses, each with required `alt` text | the name in text |
+| `favicon` | Image address | none |
+| `accent` | A color, such as `#0b6bcb` | a built-in blue |
+| `font` | A font family; a web font only from the deployment's own host | the system font stack |
+| `theme` | `system`, `light` or `dark` | `system` |
+| `footer` | Text and links | none |
+| `poweredBy` | Show "Powered by Belltower" | `true` |
+| `reportProblem` | An address for a "Report a problem" link | none |
+
+- **Contrast is checked when the page is built.** The accent color is
+  tested against both themes' backgrounds and text: 4.5:1 for text, 3:1
+  for graphics and large text. A failing pair stops the build with the two
+  colors and the ratio.
+- **No custom CSS or scripts.** Branding that can't be checked can break
+  accessibility.
+- The page is served from the deployment's own domain; the docs show the
+  DNS record for each static host.
+
+### Machine-readable status
+
+- `summary.json` follows the shape widely used by status page widgets and
+  aggregators: the page, an overall status indicator and description,
+  components with their states, open incidents, and scheduled maintenance.
+  Existing tools read a Belltower page without changes.
+- `status.json`, `history.json` and the feeds sit beside it. All are
+  readable from other sites (CORS allowed) and cached briefly.
 
 ## Accessibility
 
