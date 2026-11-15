@@ -24,16 +24,20 @@ Update this section in the same commit as the work it describes.
 - `validateConfig` (`packages/core/src/config.ts`): every check type's
   fields and defaults, components, notifiers and thresholds; errors name the
   field and suggest typos; calls `assignChecks`. Tested.
+- `runChecks` for HTTP checks (`packages/core/src/check.ts`): parallel
+  requests with timeouts, status and keyword rules, timing (with the
+  breakdown when the adapter's HttpClient reports it), failure details,
+  one results file per run. `skipTlsVerify` and `timingBreakdown`
+  capabilities. Tested with a fake HttpClient.
 
 **Next, in order:**
 
-1. `runChecks` for HTTP checks, with a fake `fetch` in tests.
-2. The local-folder Store and the Store contract suite.
-3. `decide` and its rules, pure and tested with recorded results.
-4. `handle` for heartbeats.
-5. `adapter-container`, then `examples/local`: the first thing that runs
+1. The local-folder Store and the Store contract suite.
+2. `decide` and its rules, pure and tested with recorded results.
+3. `handle` for heartbeats.
+4. `adapter-container`, then `examples/local`: the first thing that runs
    end to end.
-6. `adapter-aws` and `examples/aws-sam`.
+5. `adapter-aws` and `examples/aws-sam`.
 
 Phase 1's done-when checks are below. Things built but not yet tried for
 real go in [untested.md](untested.md).

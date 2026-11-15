@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { assignChecks, type Region } from "../src/index.ts"
 
-const node = (name: string): Region => ({ name, capabilities: { tlsInspector: true, inbox: false, sms: false } })
-const workers = (name: string): Region => ({ name, capabilities: { tlsInspector: false, inbox: false, sms: false } })
+const none = { tlsInspector: false, inbox: false, sms: false, skipTlsVerify: false, timingBreakdown: false }
+const node = (name: string): Region => ({ name, capabilities: { ...none, tlsInspector: true, skipTlsVerify: true } })
+const workers = (name: string): Region => ({ name, capabilities: none })
 
 describe("assignChecks", () => {
   it("runs HTTP checks in every region", () => {
@@ -35,6 +36,14 @@ describe("assignChecks", () => {
     const result = assignChecks([{ id: "home", type: "http", regions: ["mars"] }], [workers("us")])
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.errors[0]).toContain("mars")
+  })
+
+  it("keeps a check that skips TLS verification to regions that can", () => {
+    const result = assignChecks([{ id: "staging", type: "http", needs: ["skipTlsVerify"] }], [workers("us"), node("eu")])
+    expect(result).toEqual({ ok: true, byRegion: { us: [], eu: ["staging"] } })
+    const refused = assignChecks([{ id: "staging", type: "http", needs: ["skipTlsVerify"] }], [workers("us")])
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(refused.errors[0]).toContain("Set verifyTls to true")
   })
 
   it("judges heartbeats in one region only", () => {

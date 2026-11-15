@@ -13,6 +13,8 @@ export interface CheckRef {
   type: CheckType
   /** Regions named in config; all regions when absent. */
   regions?: readonly string[]
+  /** Capabilities this check needs beyond what its type needs. */
+  needs?: readonly (keyof Capabilities)[]
 }
 
 export interface Region {
@@ -23,10 +25,11 @@ export interface Region {
 export type Assignment = { ok: true; byRegion: Record<string, string[]> } | { ok: false; errors: string[] }
 
 /** What a check needs from the region that runs it. */
-function needs(type: CheckType): keyof Capabilities | null {
-  if (type === "tls") return "tlsInspector"
-  if (type === "email") return "inbox"
-  return null
+function needs(check: CheckRef): (keyof Capabilities)[] {
+  const out = [...(check.needs ?? [])]
+  if (check.type === "tls") out.push("tlsInspector")
+  if (check.type === "email") out.push("inbox")
+  return out
 }
 
 const FIX: Record<keyof Capabilities, string> = {
@@ -34,6 +37,9 @@ const FIX: Record<keyof Capabilities, string> = {
     "Add a region on a Node adapter (aws or container) for certificate checks, or use the Certificate Transparency fallback (docs/certificates.md).",
   inbox: "Configure an Inbox on one region, or remove the email check.",
   sms: "Configure an SMS notifier.",
+  skipTlsVerify:
+    "Set verifyTls to true, or add a region on a Node adapter (aws or container), which can skip certificate verification.",
+  timingBreakdown: "Add a region whose adapter measures request phases, or don't require them.",
 }
 
 /**
@@ -53,10 +59,11 @@ export function assignChecks(checks: readonly CheckRef[], regions: readonly Regi
       continue
     }
     const named = check.regions ? regions.filter((r) => check.regions?.includes(r.name)) : regions
-    const need = needs(check.type)
-    const capable = need ? named.filter((r) => r.capabilities[need]) : named
+    const need = needs(check)
+    const capable = named.filter((r) => need.every((n) => r.capabilities[n]))
     if (!capable.length) {
-      errors.push(`Check "${check.id}" (${check.type}) can't run in any of its regions. ${need ? FIX[need] : "Assign it at least one region."}`)
+      const missing = need.find((n) => !named.some((r) => r.capabilities[n]))
+      errors.push(`Check "${check.id}" (${check.type}) can't run in any of its regions. ${missing ? FIX[missing] : "Assign it at least one region."}`)
       continue
     }
     const single = check.type === "heartbeat" || check.type === "email" || check.type === "tls" || check.type === "domain"

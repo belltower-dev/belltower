@@ -60,6 +60,34 @@ export interface TlsInspector {
   inspect(target: { host: string; port: number; servername: string; address?: string }): Promise<CertificateInspection>
 }
 
+/**
+ * How long each phase of an HTTP request took, in milliseconds. `firstByteMs`
+ * runs from the start of the request to the response headers, so it
+ * includes DNS, connect and TLS. Web-standard `fetch` can't see the first
+ * three phases; only an adapter that declares `timingBreakdown` fills them.
+ */
+export interface HttpTiming {
+  dnsMs?: number
+  connectMs?: number
+  tlsMs?: number
+  firstByteMs?: number
+  downloadMs?: number
+  totalMs: number
+}
+
+/**
+ * Sends a check's HTTP request. The core falls back to web-standard `fetch`
+ * (`webHttpClient`); an adapter supplies its own to skip certificate
+ * verification or to measure the request's phases.
+ */
+export interface HttpClient {
+  /** Resolves when the response headers arrive. */
+  fetch(
+    request: Request,
+    options: { verifyTls: boolean },
+  ): Promise<{ response: Response; timing?: Pick<HttpTiming, "dnsMs" | "connectMs" | "tlsMs"> }>
+}
+
 export interface Clock {
   now(): Date
 }
@@ -69,4 +97,8 @@ export interface Capabilities {
   tlsInspector: boolean
   inbox: boolean
   sms: boolean
+  /** Its HttpClient can send a request without verifying the certificate (`verifyTls: false`). */
+  skipTlsVerify: boolean
+  /** Its HttpClient reports DNS, connect and TLS times. */
+  timingBreakdown: boolean
 }

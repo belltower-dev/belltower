@@ -196,7 +196,8 @@ export function validateConfig(input: unknown, regions: readonly Region[]): Conf
 
   if (errors.length) return { ok: false, errors }
 
-  const assignment = assignChecks(checks, regions)
+  const refs = checks.map((c) => (c.type === "http" && !c.verifyTls ? { ...c, needs: ["skipTlsVerify" as const] } : c))
+  const assignment = assignChecks(refs, regions)
   if (!assignment.ok) return { ok: false, errors: assignment.errors }
   return { ok: true, config: { components, checks, notifiers, thresholds }, byRegion: assignment.byRegion }
 }
@@ -316,6 +317,11 @@ function readHttp(f: Fields, base: Pick<CheckBase, "severity" | "public" | "regi
   const expectStatus = f.statusRanges("expectStatus")
   const expectKeyword = f.string("expectKeyword")
   const rejectKeyword = f.string("rejectKeyword")
+  if (method === "HEAD") {
+    for (const key of ["expectKeyword", "rejectKeyword"] as const) {
+      if (f.has(key)) f.error(key, "a HEAD response has no body to search. Set method to GET, or remove the keyword.")
+    }
+  }
   const timeoutSeconds = f.number("timeoutSeconds", 10, { above: 0 })
   const slowSeconds = f.number("slowSeconds", 5, { above: 0 })
   if (slowSeconds >= timeoutSeconds) {

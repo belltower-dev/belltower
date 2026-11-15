@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { DEFAULT_THRESHOLDS, validateConfig, type Region } from "../src/index.ts"
 
-const node = (name: string, sms = false): Region => ({ name, capabilities: { tlsInspector: true, inbox: false, sms } })
-const workers = (name: string): Region => ({ name, capabilities: { tlsInspector: false, inbox: false, sms: false } })
+const none = { tlsInspector: false, inbox: false, sms: false, skipTlsVerify: false, timingBreakdown: false }
+const node = (name: string, sms = false): Region => ({ name, capabilities: { ...none, tlsInspector: true, skipTlsVerify: true, sms } })
+const workers = (name: string): Region => ({ name, capabilities: none })
 const regions = [node("us", true), node("eu")]
 
 const base = () => ({
@@ -51,7 +52,7 @@ describe("validateConfig", () => {
       { id: "tls-www", type: "tls", component: "Website", host: "www.example.com", addresses: "all" },
       { id: "domain", type: "domain", component: "Website", domain: "example.com" },
     ]
-    const withInbox: Region[] = [{ name: "us", capabilities: { tlsInspector: true, inbox: true, sms: false } }]
+    const withInbox: Region[] = [{ name: "us", capabilities: { ...none, tlsInspector: true, inbox: true } }]
     const result = validateConfig(config, withInbox)
     expect(result.ok).toBe(true)
     if (!result.ok) return

@@ -73,6 +73,7 @@ to what a small team needs.
 | Secrets | Yes | `get(name)` | Environment variables by default; AWS SSM, Google Secret Manager |
 | Inbox | No | `find(runId)` | SES inbound to S3, Cloudflare Email Routing to R2. Without one, the email round trip is off |
 | TLS inspector | No | `inspect(host, port, servername)` | `node:tls` on Node runtimes. See [certificates.md](certificates.md) |
+| HTTP client | No | `fetch(request, { verifyTls })` | Web-standard `fetch` by default. An adapter's own client can skip certificate verification and report DNS, connect and TLS times |
 
 The store must give read-after-write consistency and be reachable from every
 region. S3, R2 and Google Cloud Storage all do.
@@ -90,12 +91,15 @@ so three adapters reach nearly everything.
 
 ### Capabilities
 
-Each adapter declares what it supports (`tlsInspector`, `inbox`, `sms`). At
-deploy, the config is checked against the regions it runs in:
+Each adapter declares what it supports (`tlsInspector`, `inbox`, `sms`,
+`skipTlsVerify`, `timingBreakdown`). At deploy, the config is checked
+against the regions it runs in:
 
 - A check is assigned only to regions whose adapter supports it. A daily
   certificate check can run from one Node region while HTTP checks run from
-  Workers regions.
+  Workers regions. An HTTP check with `verifyTls: false` runs only in
+  regions that declare `skipTlsVerify`, since web-standard `fetch` always
+  verifies.
 - A check no region can run fails the deploy with the reason and the options
   ([certificates.md](certificates.md) lists them for certificate checks).
 
@@ -130,7 +134,8 @@ A deployment's config lists checks:
 | `public` | Whether it shows on the status page | `true` |
 
 Checks send the user agent `Belltower/<version>` so the watched service
-can leave them out of its analytics and rate limits.
+can leave them out of its analytics and rate limits. A `User-Agent` in
+`headers` replaces it.
 
 `expectStatus` takes codes and classes: `204`, `"2xx"`, or a list such as
 `["2xx", 304]`. Durations (`period`, `grace`, `within`, `schedule`) are
@@ -162,7 +167,7 @@ any of these, listing every error at once with the field it's about:
   lowercase letters, digits, `-` and `_` (ids appear in storage keys).
 - A check whose `component` isn't in `components`.
 - `slowSeconds` at or above `timeoutSeconds`, `alertDays` above `warnDays`,
-  or a body on a `GET` or `HEAD`.
+  a body on a `GET` or `HEAD`, or a keyword on a `HEAD`.
 - A critical check or component with no `sms` notifier, or an `sms` notifier
   when no region's adapter can send SMS.
 - A check no region can run ("Capabilities").
@@ -175,6 +180,16 @@ any of these, listing every error at once with the field it's about:
   protected: request a private page signed out and reject a phrase from its
   body. Mark such checks `critical`, since a failure is a data exposure, not
   an outage.
+- **Each result records** whether it passed, whether it was slow, and its
+  timing in milliseconds: time to first byte (from the start of the request
+  to the response headers), download and total. Regions whose adapter
+  declares `timingBreakdown` also record DNS lookup, connect and TLS
+  handshake, so a slow check comes with a reason.
+- **A failed result also records** why, as a code (`network`, `timeout`,
+  `status`, `missing-keyword`, `rejected-keyword`, `secret`, `unsupported`)
+  and a sentence, plus the status, response headers and the first 2 KB of
+  the body for the incident.
+- The timeout covers the whole response, body included.
 
 ### Heartbeats
 
@@ -339,7 +354,7 @@ size) and is encouraged, but 2.1 AA is the requirement.
 ## Storage
 
 ```
-results/{region}/{yyyy}/{mm}/{dd}/{hh}{mm}.json   one file per run: every check's result
+results/{region}/{yyyy}/{mm}/{dd}/{hh}{mm}.json   one file per run, in UTC: every check's result
 heartbeats/{id}.json                              last success, last failure
 email/{run-id}                                    round-trip messages (written by the inbox)
 certificates/{check-id}.json                      last inspection and the previous fingerprint
@@ -350,6 +365,10 @@ public/reports/{yyyy}-{mm}.json|csv               monthly availability
 ```
 
 Raw results expire after 90 days by default; everything else is kept.
+
+Each file carries a `format` field naming its kind and version, such as
+`belltower.results/1`, so a later version can read what an earlier one
+wrote.
 
 ## Releasing it
 

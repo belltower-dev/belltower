@@ -99,7 +99,8 @@ feature request doesn't serve one of the six, it waits.
 
 ### 5. Timing breakdown on every HTTP check
 
-This affects `runChecks`, so it belongs in phase 1.
+Moved into the spec ("HTTP", "Capabilities") and built with `runChecks`.
+The incident details part arrives with `decide`.
 
 - Each result records, in milliseconds: DNS lookup, connect, TLS handshake,
   time to first byte, download, and total.
@@ -248,4 +249,5 @@ with a token. Phase 3.
 
 ## Moved into the spec and plan
 
-None yet.
+- 5. Timing breakdown: results, the `timingBreakdown` capability and the
+  HttpClient port. Showing it in incident details comes with `decide`.
