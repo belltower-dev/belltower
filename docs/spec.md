@@ -86,8 +86,13 @@ contract suite (`@belltower/core/contracts`):
   depth, in lexical order. The prefix can end partway through a name
   (`results/us` also matches `results/use/...`).
 
-The core includes an in-memory Store for tests. The container adapter
-includes a local-folder Store: one file per key, written to a temporary
+The core includes an in-memory Store for tests, and `s3Store` for any
+S3-compatible storage (AWS S3, Cloudflare R2, Google Cloud Storage's XML
+API, MinIO). It speaks the S3 API over `fetch`, signing requests with AWS
+Signature Version 4 through Web Crypto, so every adapter can use it with no
+SDK. It can keep a deployment's keys under a prefix, so one bucket can hold
+several deployments, and uses the bucket's own host name on amazonaws.com
+and the path elsewhere. The container adapter includes a local-folder Store: one file per key, written to a temporary
 file and renamed into place, refusing keys with empty, `.` or `..` parts.
 
 ### Adapters
