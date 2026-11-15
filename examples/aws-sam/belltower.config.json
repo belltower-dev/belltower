@@ -1,0 +1,47 @@
+{
+  "components": [
+    { "name": "Website" },
+    { "name": "API" },
+    { "name": "Nightly jobs" }
+  ],
+  "notifiers": [
+    { "id": "ops-email", "type": "email", "to": ["ops@example.com"] },
+    { "id": "chat", "type": "webhook", "secret": "CHAT_WEBHOOK_URL" }
+  ],
+  "checks": [
+    {
+      "id": "home",
+      "type": "http",
+      "component": "Website",
+      "url": "https://www.example.com/",
+      "expectKeyword": "Example Domain"
+    },
+    {
+      "id": "api-health",
+      "type": "http",
+      "component": "API",
+      "url": "https://api.example.com/health",
+      "expectStatus": 200,
+      "timeoutSeconds": 5,
+      "slowSeconds": 2
+    },
+    {
+      "id": "account-private",
+      "type": "http",
+      "component": "Website",
+      "url": "https://www.example.com/account",
+      "expectStatus": [401, 302],
+      "followRedirects": false,
+      "rejectKeyword": "Account balance"
+    },
+    {
+      "id": "nightly-export",
+      "type": "heartbeat",
+      "component": "Nightly jobs",
+      "period": "1d",
+      "grace": "30m",
+      "token": "NIGHTLY_EXPORT_TOKEN",
+      "public": false
+    }
+  ]
+}

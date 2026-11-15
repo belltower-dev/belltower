@@ -1,0 +1,14 @@
+{
+  "name": "belltower-example-aws-sam",
+  "private": true,
+  "description": "Belltower on AWS Lambda in several regions, deployed with AWS SAM",
+  "license": "Apache-2.0",
+  "type": "module",
+  "dependencies": {
+    "@belltower/adapter-aws": "workspace:*",
+    "@belltower/adapter-container": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43"
+  }
+}

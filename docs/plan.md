@@ -11,7 +11,8 @@ examples, and makes the repository public.
 
 Update this section in the same commit as the work it describes.
 
-**Now:** phase 1.
+**Now:** phase 1's code is built. Its remaining done-when checks need a
+real AWS deployment of `examples/aws-sam`.
 
 **Done:**
 
@@ -60,9 +61,16 @@ Update this section in the same commit as the work it describes.
   S3 through `s3Store`, SSM secrets, SES email and SNS SMS, all over fetch
   with SigV4. Tested against a fake AWS.
 
+- `examples/aws-sam`: a SAM template (checks in every region; the bucket,
+  decide and a heartbeat function URL in the primary region) and a demo
+  config. Not yet deployed.
+
 **Next, in order:**
 
-1. `examples/aws-sam`: a deployable template and a demo config.
+1. Deploy `examples/aws-sam` to three regions and run phase 1's remaining
+   done-when checks.
+2. Phase 2, starting with what has no interface: the daily roll-up into
+   `public/history.json` and the monthly report.
 
 Phase 1's done-when checks are below.
 

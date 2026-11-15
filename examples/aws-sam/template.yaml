@@ -1,0 +1,165 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Belltower uptime monitor. Deploy this stack once in each region listed in
+  Regions. The stack in PrimaryRegion also creates the shared bucket, runs
+  decide() and serves heartbeat pings.
+
+Parameters:
+  Regions:
+    Type: CommaDelimitedList
+    Description: Every region the monitor runs in, such as us-east-1,eu-west-1,ap-southeast-2.
+  PrimaryRegion:
+    Type: String
+    Description: The region that holds the bucket, runs decide() and serves heartbeats. Must be one of Regions.
+  BucketName:
+    Type: String
+    Description: A new, globally unique bucket name for results, incidents and status.
+  EmailFrom:
+    Type: String
+    Default: ""
+    Description: A sender address verified in SES in PrimaryRegion. Needed only if a notifier sends email.
+  SsmPath:
+    Type: String
+    Default: belltower
+    Description: Secrets the config names are read from SSM Parameter Store under /<SsmPath>/.
+
+Conditions:
+  IsPrimary: !Equals [!Ref "AWS::Region", !Ref PrimaryRegion]
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 55
+    CodeUri: .
+    Environment:
+      Variables:
+        BELLTOWER_REGIONS: !Join [",", !Ref Regions]
+        BELLTOWER_BUCKET: !Ref BucketName
+        BELLTOWER_BUCKET_REGION: !Ref PrimaryRegion
+        BELLTOWER_SSM_PREFIX: !Sub "/${SsmPath}/"
+        BELLTOWER_EMAIL_FROM: !Ref EmailFrom
+
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsPrimary
+    # Incidents, history and reports are the SLA record; keep them if the stack goes.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireRawResults
+            Status: Enabled
+            Prefix: results/
+            ExpirationInDays: 90
+
+  ChecksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Runs this region's checks every minute and writes one results file.
+      Handler: handlers.checks
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref BucketName
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub "${SsmPath}/*"
+      Events:
+        EveryMinute:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(* * * * ? *)
+            # A late retry would land in the wrong minute; the next minute runs anyway.
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        Platform: node
+        Target: node22
+        EntryPoints: [handlers.ts]
+        OutExtension: [.js=.mjs]
+        Banner:
+          - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+
+  DecideFunction:
+    Type: AWS::Serverless::Function
+    Condition: IsPrimary
+    Properties:
+      Description: Judges every region's results each minute, opens and resolves incidents, sends alerts.
+      Handler: handlers.decide
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref BucketName
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub "${SsmPath}/*"
+        - Statement:
+            - Effect: Allow
+              Action: ses:SendEmail
+              Resource: "*"
+            # SMS to a phone number has no resource ARN to scope to.
+            - Effect: Allow
+              Action: sns:Publish
+              Resource: "*"
+      Events:
+        EveryMinute:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(* * * * ? *)
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        Platform: node
+        Target: node22
+        EntryPoints: [handlers.ts]
+        OutExtension: [.js=.mjs]
+        Banner:
+          - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+
+  HttpFunction:
+    Type: AWS::Serverless::Function
+    Condition: IsPrimary
+    Properties:
+      Description: Records heartbeat pings at /hb/{token} and /hb/{token}/fail.
+      Handler: handlers.http
+      Timeout: 10
+      FunctionUrlConfig:
+        # Heartbeat URLs carry their own secret token.
+        AuthType: NONE
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref BucketName
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub "${SsmPath}/*"
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        Platform: node
+        Target: node22
+        EntryPoints: [handlers.ts]
+        OutExtension: [.js=.mjs]
+        Banner:
+          - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+
+Outputs:
+  HeartbeatBaseUrl:
+    Condition: IsPrimary
+    Description: Jobs ping <this URL>hb/<token> on success and <this URL>hb/<token>/fail on failure.
+    Value: !GetAtt HttpFunctionUrl.FunctionUrl
+  Bucket:
+    Description: Where results, incidents and public/status.json are kept.
+    Value: !Ref BucketName
