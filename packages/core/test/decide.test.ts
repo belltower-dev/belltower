@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   DEFAULT_THRESHOLDS,
   RESULTS_FORMAT,
+  HISTORY_KEY,
   PAGE_KEY,
   STATUS_KEY,
   decide,
@@ -308,6 +309,17 @@ describe("decide", () => {
       page: { name: "Status", mode: "system", poweredBy: true },
       components: [{ name: "Website" }, { name: "API" }],
     })
+  })
+
+  it("counts degraded minutes and response times into the history", async () => {
+    const { minute, store } = world()
+    for (let i = 0; i < 5; i++) await minute("ppp")
+    for (let i = 0; i < 7; i++) await minute("ssp")
+    // Slow from 10:05, degraded from the fifth slow minute (10:09). The roll-up at 10:11:30 has 10:09 and 10:10.
+    const history = JSON.parse((await store.get(HISTORY_KEY)) ?? "null")
+    const today = history.components[0].days.at(-1)
+    expect(today.degradedMinutes).toBe(2)
+    expect(today.responseMs).toBe(101) // 100 ms, read from a 2% bucket
   })
 
   it("shows degraded after five slow minutes, without an incident", async () => {

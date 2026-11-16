@@ -2,6 +2,7 @@ import { resultsKey, RESULTS_FORMAT, type CheckResult, type ResultsFile } from "
 import type { Check, Config, HeartbeatCheck, HttpCheck, PageConfig, Thresholds } from "./config.ts"
 import { rollUp } from "./availability.ts"
 import { heartbeatKey, judgeHeartbeat, type HeartbeatRecord } from "./heartbeat.ts"
+import { emptyMetrics, METRICS_FORMAT, METRICS_KEY, recordMinute, type Metrics } from "./metrics.ts"
 import { maintenanceWindows, NOTES_FORMAT, NOTES_KEY, type PublicNotes } from "./notes.ts"
 import { worst, type ComponentState } from "./states.ts"
 import type { Alert, Clock, HttpTiming, Notifier, Priority, Store } from "./ports.ts"
@@ -216,6 +217,9 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
     return c
   }
 
+  /** Response times in the last complete minute, by component, from public HTTP checks that passed. */
+  const responses = new Map<string, number[]>()
+
   for (const check of config.checks) {
     const key = check.incidentKey ?? check.id
     const spans = open.get(key)?.checks[check.id]?.spans
@@ -225,6 +229,10 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
     if (check.type === "http") {
       const regions = runners.get(check.id) ?? []
       const samples = minutes.map((m) => sampleFor(files, regions, m, check.id))
+      if (check.public) {
+        const times = Object.values(samples.at(-1) ?? {}).filter((r) => r.ok).map((r) => r.timing.totalMs)
+        if (times.length) responses.set(check.component, [...(responses.get(check.component) ?? []), ...times])
+      }
       const verdict = judge(samples, regions.length, t, wasDown)
       report.states[check.id] = maintenanceNow && !wasDown ? "maintenance" : verdict.state
       if (!wasDown && !maintenanceNow && verdict.state === "down" && verdict.since !== null) {
@@ -295,16 +303,38 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
 
   state.since ??= now.toISOString()
   const changed = report.opened.length > 0 || report.resolved.length > 0
+  const maintenance = new Set(config.components.map((c) => c.name).filter((name) => maintenanceEnd(name, now.getTime()) !== null))
+  const regionTimes = Object.keys(byRegion).map((name) => ({ name, lastResultsAt: state.lastResults?.[name] ?? null }))
+  const current = publicStatus(config, report.states, [...open.values()], now, maintenance, regionTimes)
+  const metrics = recordMinute(
+    await readMetrics(store, problems),
+    new Date(last),
+    responses,
+    new Set(current.components.filter((c) => c.state === "degraded").map((c) => c.name)),
+  )
+  await store.put(METRICS_KEY, JSON.stringify(metrics), { contentType: "application/json" })
+
   if (changed || !state.rolledUpAt || now.getTime() - Date.parse(state.rolledUpAt) >= ROLL_UP_EVERY) {
-    await rollUp({ config, store, clock, since: new Date(state.since), maintenance: windows })
+    await rollUp({ config, store, clock, since: new Date(state.since), maintenance: windows, metrics })
     await store.put(PAGE_KEY, JSON.stringify(publicPage(config, now)), { contentType: "application/json" })
     state.rolledUpAt = now.toISOString()
   }
 
   await store.put(DECIDE_STATE_KEY, JSON.stringify(state), { contentType: "application/json" })
-  const maintenance = new Set(config.components.map((c) => c.name).filter((name) => maintenanceEnd(name, now.getTime()) !== null))
-  await store.put(STATUS_KEY, JSON.stringify(publicStatus(config, report.states, [...open.values()], now, maintenance, Object.keys(byRegion).map((name) => ({ name, lastResultsAt: state.lastResults?.[name] ?? null })))), { contentType: "application/json" })
+  await store.put(STATUS_KEY, JSON.stringify(current), { contentType: "application/json" })
   return report
+}
+
+async function readMetrics(store: Store, problems: string[]): Promise<Metrics> {
+  try {
+    const metrics = await readJson<Metrics>(store, METRICS_KEY)
+    if (metrics === null) return emptyMetrics()
+    if (metrics.format !== METRICS_FORMAT) throw new Error(`format ${JSON.stringify(metrics.format)}`)
+    return metrics
+  } catch (error) {
+    problems.push(`${METRICS_KEY} couldn't be read (${(error as Error).message}); response times start again from this minute.`)
+    return emptyMetrics()
+  }
 }
 
 async function readNotes(store: Store, problems: string[]): Promise<PublicNotes | null> {

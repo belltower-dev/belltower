@@ -481,9 +481,13 @@ Degraded performance, Maintenance, Operational.
   color. Under the bars, this month's availability next to the target.
 - **Response time:** a chart of the last 24 hours and the last 90 days,
   with the same figures in a table. `decide()` keeps the figures as it
-  goes: hourly and daily medians from the public checks' results, and the
-  minutes each day a component was degraded. Degraded minutes don't count
-  against availability.
+  goes: hourly and daily medians of the passing public HTTP checks'
+  total times, and the minutes each day a component was degraded. Degraded
+  minutes don't count against availability. The medians come from
+  histograms with 2% buckets, so they're within 1% of the exact value and
+  `state/metrics.json` stays small. `public/history.json` carries them:
+  each day's `degradedMinutes` and `responseMs`, and each component's last
+  24 whole `hours`.
 - Heartbeat, certificate and domain checks are usually internal
   (`public: false`) and don't appear.
 
@@ -667,7 +671,8 @@ heartbeats/{id}.json                              last success, last failure
 email/{run-id}                                    round-trip messages (written by the inbox)
 certificates/{check-id}.json                      last inspection and the previous fingerprint
 incidents/{id}.json                               detected incidents
-state/decide.json                                 which checks have an open incident (decide()'s own state)
+state/decide.json                                 open incidents by key, and each region's last results time (decide()'s own state)
+state/metrics.json                                response-time histograms and degraded minutes per component
 public/status.json                                current state, with the time it was written
 public/history.json                               90 days of daily figures per component
 public/notes.json                                 published incident and maintenance notes

@@ -97,7 +97,7 @@ describe("buildHistory", () => {
     const history = buildHistory(config(), [incident("home", "Website", "2026-11-14T23:50:00Z", "2026-11-15T00:20:00Z")], [], since, now)
     const website = history.components[0]
     expect(website?.days).toHaveLength(90)
-    expect(website?.days.at(-2)).toEqual({ date: "2026-11-14", uptime: 99.305, downMinutes: 10, maintenanceMinutes: 0, incidents: ["home-202611142350"] })
+    expect(website?.days.at(-2)).toEqual({ date: "2026-11-14", uptime: 99.305, downMinutes: 10, maintenanceMinutes: 0, degradedMinutes: 0, responseMs: null, incidents: ["home-202611142350"] })
     // Today counts only the 720 minutes so far: 20 down.
     expect(website?.days.at(-1)).toMatchObject({ date: "2026-11-15", uptime: 97.222, downMinutes: 20 })
     expect(history.components[1]?.days.at(-1)?.uptime).toBe(100)

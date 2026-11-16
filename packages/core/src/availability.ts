@@ -1,5 +1,6 @@
 import type { Component, Config } from "./config.ts"
 import type { Incident } from "./decide.ts"
+import { responseFigures, type Metrics } from "./metrics.ts"
 import type { Clock, Store } from "./ports.ts"
 
 /*
@@ -105,6 +106,10 @@ export interface DayFigure {
   uptime: number | null
   downMinutes: number
   maintenanceMinutes: number
+  /** Minutes the component was degraded. They don't count against uptime. */
+  degradedMinutes: number
+  /** Median response time of its public HTTP checks, or null with none recorded. */
+  responseMs: number | null
   /** Ids of public incidents that overlap the day. */
   incidents: string[]
 }
@@ -151,10 +156,19 @@ export interface PublicHistory {
     target: number | null
     month: { month: string; availability: number | null }
     days: DayFigure[]
+    /** The last 24 whole hours, oldest first. */
+    hours: { hour: string; responseMs: number | null }[]
   }[]
 }
 
-export function buildHistory(config: Config, incidents: readonly Incident[], maintenance: readonly MaintenanceWindow[], since: Date, now: Date): PublicHistory {
+export function buildHistory(
+  config: Config,
+  incidents: readonly Incident[],
+  maintenance: readonly MaintenanceWindow[],
+  since: Date,
+  now: Date,
+  metrics: Metrics | null = null,
+): PublicHistory {
   const spans = componentSpans(config, incidents, maintenance, now)
   const today = utcDay(now.getTime())
   const thisMonth = monthStart(now.getTime())
@@ -163,15 +177,19 @@ export function buildHistory(config: Config, incidents: readonly Incident[], mai
     writtenAt: now.toISOString(),
     components: config.components.map((component) => {
       const s = spans.get(component.name) ?? { down: [], maintenance: [], incidents: [] }
+      const response = responseFigures(metrics, component.name, now)
       const days: DayFigure[] = []
       for (let i = HISTORY_DAYS - 1; i >= 0; i--) {
         const start = today - i * DAY
         const f = figure(s, start, start + DAY, since.getTime(), now.getTime())
+        const date = new Date(start).toISOString().slice(0, 10)
         days.push({
-          date: new Date(start).toISOString().slice(0, 10),
+          date,
           uptime: f.availability,
           downMinutes: f.downMinutes,
           maintenanceMinutes: f.maintenanceMinutes,
+          degradedMinutes: response.days.get(date)?.degradedMinutes ?? 0,
+          responseMs: response.days.get(date)?.responseMs ?? null,
           incidents: s.incidents
             .filter((inc) => Date.parse(inc.startedAt) < start + DAY && (inc.endedAt ? Date.parse(inc.endedAt) : now.getTime()) > start)
             .map((inc) => inc.id),
@@ -183,6 +201,7 @@ export function buildHistory(config: Config, incidents: readonly Incident[], mai
         target: component.target ?? null,
         month: { month: new Date(thisMonth).toISOString().slice(0, 7), availability: month.availability },
         days,
+        hours: response.hours,
       }
     }),
   }
@@ -279,14 +298,14 @@ export function reportKey(month: string, ext: "json" | "csv"): string {
  * and last month's reports as JSON and CSV. `since` is when monitoring
  * began; earlier minutes aren't counted.
  */
-export async function rollUp(deps: { config: Config; store: Store; clock: Clock; since: Date; maintenance?: readonly MaintenanceWindow[] }): Promise<{ history: PublicHistory; reports: MonthlyReport[] }> {
+export async function rollUp(deps: { config: Config; store: Store; clock: Clock; since: Date; maintenance?: readonly MaintenanceWindow[]; metrics?: Metrics | null }): Promise<{ history: PublicHistory; reports: MonthlyReport[] }> {
   const now = deps.clock.now()
   const keys = await deps.store.list("incidents/")
   const incidents = (await Promise.all(keys.map(async (k) => JSON.parse((await deps.store.get(k)) ?? "null") as Incident | null))).filter(
     (i): i is Incident => i !== null && typeof i.startedAt === "string",
   )
   const maintenance = deps.maintenance ?? []
-  const history = buildHistory(deps.config, incidents, maintenance, deps.since, now)
+  const history = buildHistory(deps.config, incidents, maintenance, deps.since, now, deps.metrics ?? null)
   const reports = [monthStart(now.getTime(), -1), monthStart(now.getTime())].map((m) => buildReport(deps.config, incidents, maintenance, m, deps.since, now))
   const json = { contentType: "application/json" }
   await deps.store.put(HISTORY_KEY, JSON.stringify(history), json)
