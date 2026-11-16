@@ -546,7 +546,7 @@ From the config's `page` section:
 | `logo`, `logoDark` | `{ "src", "alt" }`: an image address (SVG preferred) and its required alt text | the name in text |
 | `favicon` | Image address | none |
 | `theme` | A theme in the shadcn/ui registry format: a file path, a URL fetched at build, or the same object inline. Its light and dark variables (`background`, `foreground`, `card`, `primary`, `secondary`, `muted`, `accent`, `destructive`, `border`, `input`, `ring`, `chart-1` to `chart-5`, `radius`) and fonts (`font-sans`, `font-mono`, `font-serif`) style the page | Belltower's neutral theme |
-| `states` | Colors for the six day and state marks (`operational`, `degraded`, `partial`, `major`, `maintenance`, `nodata`), each with a light and a dark value, for a deployment that already has its own status colors | taken from the theme's chart and destructive colors |
+| `states` | Colors for the six day and state marks (`operational`, `degraded`, `partial`, `major`, `maintenance`, `nodata`), each with a light and a dark value, for a deployment that already has its own status colors | Belltower's state colors, with the theme's `destructive` for Major outage |
 | `mode` | `system`, `light` or `dark` | `system` |
 | `footer` | `{ "text", "links": [{ "text", "url" }] }` | none |
 | `poweredBy` | Show "Powered by Belltower" | `true` |
@@ -557,6 +557,9 @@ From the config's `page` section:
   `primary`; outages from `destructive`; corners from `radius`; focus from
   `ring`. Fonts named by the theme are fetched once at build and served
   from the page's own host, so visitors make no third-party requests.
+- **Colors the build reads:** hex, `rgb()`, `hsl()`, `oklch()`, and
+  the bare HSL triplets of older shadcn/ui themes (`222.2 84% 4.9%`).
+  Variables the theme leaves out come from the neutral theme.
 - **Contrast is checked when the page is built,** in both modes: text and
   state words 4.5:1 on every surface they sit on, bars, icons, borders of
   controls and the focus indicator 3:1, and the primary button's text on
