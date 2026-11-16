@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
 import historySchema from "../schemas/history.schema.json" with { type: "json" }
 import reportSchema from "../schemas/report.schema.json" with { type: "json" }
+import pageSchema from "../schemas/page.schema.json" with { type: "json" }
 import statusSchema from "../schemas/status.schema.json" with { type: "json" }
-import { buildHistory, buildReport, publicStatus, validateConfig, type Config } from "../src/index.ts"
+import { buildHistory, buildReport, publicPage, publicStatus, validateConfig, type Config } from "../src/index.ts"
 
 /*
  * Checks real output against the published schemas, with a small checker
@@ -74,6 +75,32 @@ describe("published schemas", () => {
   it("describe public/status.json", () => {
     const status = publicStatus(config(), { home: "down" }, [incident], now)
     expect(check(status, statusSchema as Schema, statusSchema as Schema)).toEqual([])
+  })
+
+  it("describe public/page.json, with every page field set", () => {
+    const result = validateConfig(
+      {
+        page: {
+          name: "Example",
+          link: "https://example.com/",
+          logo: { src: "logo.svg", alt: "Example" },
+          logoDark: { src: "logo-dark.svg", alt: "Example" },
+          favicon: "favicon.svg",
+          theme: { name: "example", type: "registry:theme", cssVars: { light: { background: "#ffffff" }, dark: { background: "#000000" } } },
+          states: { operational: { light: "#15803d", dark: "#4ade80" } },
+          mode: "dark",
+          footer: { text: "Example Ltd", links: [{ text: "Privacy", url: "https://example.com/privacy" }] },
+          poweredBy: false,
+          reportProblem: "mailto:support@example.com",
+        },
+        components: [{ name: "Website", group: "Apps", description: "The web app", link: "https://app.example.com/", target: 99.9 }],
+        notifiers: [{ id: "ops", type: "webhook", secret: "HOOK" }],
+        checks: [{ id: "home", type: "http", component: "Website", url: "https://www.example.com/" }],
+      },
+      [{ name: "us", capabilities: caps }],
+    )
+    if (!result.ok) throw new Error(result.errors.join("\n"))
+    expect(check(publicPage(result.config, now), pageSchema as Schema, pageSchema as Schema)).toEqual([])
   })
 
   it("describe public/history.json", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   DEFAULT_THRESHOLDS,
   RESULTS_FORMAT,
+  PAGE_KEY,
   STATUS_KEY,
   decide,
   judge,
@@ -281,6 +282,31 @@ describe("decide", () => {
         { name: "API", state: "operational" },
       ],
       incidents: [{ id: "home-202611151000", components: ["Website"], startedAt: "2026-11-15T10:00:00.000Z" }],
+      regions: ["us", "eu", "ap"].map((name) => ({ name, lastResultsAt: "2026-11-15T10:01:00.000Z" })),
+    })
+  })
+
+  it("keeps each region's last results time after it stops writing", async () => {
+    const { minute, store } = world()
+    await minute("ppp")
+    for (let i = 0; i < 12; i++) await minute("pp-")
+    const regions = (await status(store)).regions
+    expect(regions).toEqual([
+      { name: "us", lastResultsAt: "2026-11-15T10:12:00.000Z" },
+      { name: "eu", lastResultsAt: "2026-11-15T10:12:00.000Z" },
+      { name: "ap", lastResultsAt: "2026-11-15T10:00:00.000Z" },
+    ])
+  })
+
+  it("publishes the page section and components' public fields, nothing else", async () => {
+    const { minute, store } = world()
+    await minute("ppp")
+    const page = JSON.parse((await store.get(PAGE_KEY)) ?? "null")
+    expect(page).toEqual({
+      format: "belltower.page/1",
+      writtenAt: "2026-11-15T10:01:30.000Z",
+      page: { name: "Status", mode: "system", poweredBy: true },
+      components: [{ name: "Website" }, { name: "API" }],
     })
   })
 

@@ -538,15 +538,15 @@ From the config's `page` section:
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `name`, `link` | The deployment's name and home page. With `link`, the header also shows a visible "Go to {name}" link | |
-| `logo`, `logoDark` | Image addresses (SVG preferred), each with required `alt` text | the name in text |
+| `name`, `link` | The deployment's name and home page. With `link`, the header also shows a visible "Go to {name}" link. `name` is required when `page` is set | `Status` |
+| `logo`, `logoDark` | `{ "src", "alt" }`: an image address (SVG preferred) and its required alt text | the name in text |
 | `favicon` | Image address | none |
 | `theme` | A theme in the shadcn/ui registry format: a file path, a URL fetched at build, or the same object inline. Its light and dark variables (`background`, `foreground`, `card`, `primary`, `secondary`, `muted`, `accent`, `destructive`, `border`, `input`, `ring`, `chart-1` to `chart-5`, `radius`) and fonts (`font-sans`, `font-mono`, `font-serif`) style the page | Belltower's neutral theme |
 | `states` | Colors for the six day and state marks (`operational`, `degraded`, `partial`, `major`, `maintenance`, `nodata`), each with a light and a dark value, for a deployment that already has its own status colors | taken from the theme's chart and destructive colors |
 | `mode` | `system`, `light` or `dark` | `system` |
-| `footer` | Text and links | none |
+| `footer` | `{ "text", "links": [{ "text", "url" }] }` | none |
 | `poweredBy` | Show "Powered by Belltower" | `true` |
-| `reportProblem` | An address for a "Report a problem" link | none |
+| `reportProblem` | An http, https or mailto address for a "Report a problem" link | none |
 
 - **How the theme maps:** the page's surfaces come from `background`,
   `muted` and `border`; text from `foreground`; buttons and links from
@@ -671,6 +671,7 @@ state/decide.json                                 which checks have an open inci
 public/status.json                                current state, with the time it was written
 public/history.json                               90 days of daily figures per component
 public/notes.json                                 published incident and maintenance notes
+public/page.json                                  the page section and components' public fields, from the config
 public/reports/{yyyy}-{mm}.json|csv               monthly availability
 ```
 
@@ -681,7 +682,8 @@ Each file carries a `format` field naming its kind and version, such as
 wrote.
 
 The public files have JSON Schemas in `packages/core/schemas/`
-(`status.schema.json`, `history.schema.json`, `report.schema.json`),
+(`status.schema.json`, `history.schema.json`, `report.schema.json`,
+`page.schema.json`),
 published with `@belltower/core`. They change compatibly within a major
 version: fields are only added. A test checks real output against them.
 
@@ -690,6 +692,11 @@ the overall state, each component's name and state, the open incidents
 (id, the components of their public checks, start), and each region's name and the time of its last
 results. Only public checks count toward it. Nothing else
 from the config, the results or the incidents is copied into it.
+
+`public/page.json` is the only public file with config in it, also from
+an allowlist: the `page` section, and each component's name, group,
+description, link and target. `decide()` writes it with the history, so
+a config change shows on the page within 10 minutes.
 
 ## The command line
 

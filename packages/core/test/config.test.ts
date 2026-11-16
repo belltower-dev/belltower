@@ -294,3 +294,42 @@ describe("validateConfig", () => {
     expect(errorsFor(base(), [])[0]).toContain("No regions are declared")
   })
 })
+
+describe("the page section", () => {
+  it("defaults to a page named Status in the system mode", () => {
+    const result = validateConfig(base(), regions)
+    expect(result.ok && result.config.page).toEqual({ name: "Status", mode: "system", poweredBy: true })
+  })
+
+  it("reads components' group, description and link", () => {
+    const config = { ...base(), components: [{ name: "Website", group: "Apps", description: "The web app", link: "https://app.example.com/" }, { name: "API" }] }
+    const result = validateConfig(config, regions)
+    expect(result.ok && result.config.components[0]).toEqual({ name: "Website", group: "Apps", description: "The web app", link: "https://app.example.com/", credits: [] })
+  })
+
+  it("names each problem with the page's fields", () => {
+    const errors = errorsFor({
+      ...base(),
+      page: {
+        logo: { src: "logo.svg" },
+        logoDark: "dark.svg",
+        theme: { name: "nothing" },
+        states: { operational: { light: "green-ish", dark: "#4ade80" }, outage: { light: "#f00", dark: "#f00" } },
+        mode: "dim",
+        footer: { links: [{ text: "Privacy", url: "javascript:alert(1)" }] },
+        reportProblem: "support",
+      },
+    })
+    expect(errors).toEqual([
+      "page.name: is required: the deployment's name, shown in the header and the title.",
+      'page.logo.alt: is required: text for people who can\'t see the logo, usually the name, such as "Example".',
+      'page.logoDark: must be an object, got "dark.svg".',
+      "page.theme: is an object without cssVars. Use a theme in the shadcn/ui registry format, with cssVars.light and cssVars.dark, or give its file path or URL.",
+      'page.states.operational.light: must be a CSS color such as #15803d or oklch(0.6 0.15 150), got "green-ish".',
+      "page.states.outage: isn't a known field.",
+      'page.mode: must be one of system, light, dark, got "dim".',
+      'page.footer.links[0]: must be { "text": <words saying where it goes>, "url": <http, https or mailto address> }, got {"text":"Privacy","url":"javascript:alert(1)"}.',
+      'page.reportProblem: must be an http, https or mailto address, got "support".',
+    ])
+  })
+})

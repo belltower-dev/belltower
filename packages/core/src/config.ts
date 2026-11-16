@@ -102,6 +102,37 @@ export interface Component {
   target?: number
   /** Credit tiers, highest threshold first. */
   credits: readonly CreditTier[]
+  /** The heading it's listed under on the status page. */
+  group?: string
+  /** One line, shown when its row is opened. */
+  description?: string
+  /** The thing itself, such as the web app's address. */
+  link?: string
+}
+
+/** The six marks a deployment can color: the five states and days with no data. */
+export type StateMark = "operational" | "degraded" | "partial" | "major" | "maintenance" | "nodata"
+export const STATE_MARKS: readonly StateMark[] = ["operational", "degraded", "partial", "major", "maintenance", "nodata"]
+
+export interface PageImage {
+  src: string
+  alt: string
+}
+
+/** The status page and its branding (docs/spec.md, "Branding"). */
+export interface PageConfig {
+  name: string
+  link?: string
+  logo?: PageImage
+  logoDark?: PageImage
+  favicon?: string
+  /** A shadcn/ui registry theme: a file path or URL resolved at build, or the theme itself. */
+  theme?: string | Readonly<Record<string, unknown>>
+  states?: Partial<Record<StateMark, { light: string; dark: string }>>
+  mode: "system" | "light" | "dark"
+  footer?: { text?: string; links: readonly { text: string; url: string }[] }
+  poweredBy: boolean
+  reportProblem?: string
 }
 
 interface NotifierBase {
@@ -131,6 +162,7 @@ export interface Thresholds {
 }
 
 export interface Config {
+  page: PageConfig
   components: readonly Component[]
   checks: readonly Check[]
   notifiers: readonly NotifierConfig[]
@@ -222,12 +254,13 @@ export function validateConfig(input: unknown, regions: readonly Region[]): Conf
     return issues.failure()
   }
   // $schema lets editors and agents validate the file as they write it.
-  const root = new Fields(input, "", "", issues, ["$schema", "components", "checks", "notifiers", "thresholds"])
+  const root = new Fields(input, "", "", issues, ["$schema", "page", "components", "checks", "notifiers", "thresholds"])
 
   const components = list(root, "components", "add at least one component.", (f) => readComponent(f))
   const notifiers = list(root, "notifiers", "add at least one notifier, or no alert can be sent.", (f) => readNotifier(f))
   const checks = list(root, "checks", "add at least one check.", (f) => readCheck(f))
   const thresholds = readThresholds(root)
+  const page = readPage(root)
   root.finish()
 
   unique(components, (c) => c.name, "components", "name", issues)
@@ -266,7 +299,7 @@ export function validateConfig(input: unknown, regions: readonly Region[]): Conf
     }
     return issues.failure()
   }
-  return { ok: true, config: { components, checks, notifiers, thresholds }, byRegion: assignment.byRegion }
+  return { ok: true, config: { page, components, checks, notifiers, thresholds }, byRegion: assignment.byRegion }
 }
 
 function readComponent(f: Fields): Component | null {
@@ -275,8 +308,21 @@ function readComponent(f: Fields): Component | null {
   const priority = f.priority("priority")
   const target = f.has("target") ? f.percentage("target") : undefined
   const credits = readCredits(f)
+  const group = f.string("group")
+  const description = f.string("description")
+  const link = f.link("link")
   f.finish()
-  return name === undefined ? null : { name, credits, ...(priority !== undefined ? { priority } : {}), ...(target !== undefined ? { target } : {}) }
+  return name === undefined
+    ? null
+    : {
+        name,
+        credits,
+        ...(priority !== undefined ? { priority } : {}),
+        ...(target !== undefined ? { target } : {}),
+        ...(group !== undefined ? { group } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(link !== undefined ? { link } : {}),
+      }
 }
 
 function readCredits(f: Fields): CreditTier[] {
@@ -321,6 +367,95 @@ function readNotifier(f: Fields): NotifierConfig | null {
   }
   f.finish()
   return result
+}
+
+const DEFAULT_PAGE: PageConfig = { name: "Status", mode: "system", poweredBy: true }
+const COLOR = /^(#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?|(rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\([^)]*\))$/i
+
+function readPage(root: Fields): PageConfig {
+  const f = root.object("page")
+  if (!f) return DEFAULT_PAGE
+  const name = f.string("name", { required: true, hint: "the deployment's name, shown in the header and the title" })
+  const link = f.link("link")
+  const image = (key: string): PageImage | undefined => {
+    const g = f.object(key)
+    if (!g) return undefined
+    const src = g.string("src", { required: true, hint: "the image's address, SVG preferred" })
+    const alt = g.string("alt", { required: true, hint: `text for people who can't see the logo, usually the name, such as "${name ?? "Example"}"` })
+    g.finish()
+    return src !== undefined && alt !== undefined ? { src, alt } : undefined
+  }
+  const logo = image("logo")
+  const logoDark = image("logoDark")
+  if (logoDark && !logo) f.error("logoDark", "conflict", "is set without logo.", "Set logo too; logoDark replaces it in dark mode.")
+  const favicon = f.string("favicon")
+
+  let theme: PageConfig["theme"]
+  const rawTheme = f.raw("theme")
+  if (typeof rawTheme === "string" && rawTheme) theme = rawTheme
+  else if (isRecord(rawTheme)) {
+    if (!isRecord(rawTheme.cssVars)) f.error("theme", "invalid", "is an object without cssVars.", "Use a theme in the shadcn/ui registry format, with cssVars.light and cssVars.dark, or give its file path or URL.")
+    else theme = rawTheme
+  } else if (rawTheme !== undefined) f.error("theme", "invalid", `must be a file path, a URL or a shadcn/ui registry theme, got ${show(rawTheme)}.`)
+
+  let states: PageConfig["states"]
+  const sf = f.object("states")
+  if (sf) {
+    states = {}
+    for (const mark of STATE_MARKS) {
+      const mf = sf.object(mark)
+      if (!mf) continue
+      const light = mf.string("light", { required: true, hint: "a CSS color for light mode" })
+      const dark = mf.string("dark", { required: true, hint: "a CSS color for dark mode" })
+      for (const [k, v] of [["light", light], ["dark", dark]] as const) if (v !== undefined && !COLOR.test(v.trim())) mf.error(k, "invalid", `must be a CSS color such as #15803d or oklch(0.6 0.15 150), got ${show(v)}.`)
+      mf.finish()
+      if (light !== undefined && dark !== undefined) states[mark] = { light, dark }
+    }
+    sf.finish()
+  }
+  const mode = f.oneOf("mode", ["system", "light", "dark"] as const) ?? "system"
+
+  let footer: PageConfig["footer"]
+  const ff = f.object("footer")
+  if (ff) {
+    const text = ff.string("text")
+    const links: { text: string; url: string }[] = []
+    const raw = ff.raw("links")
+    if (raw !== undefined && !Array.isArray(raw)) ff.error("links", "invalid", 'must be a list such as [{ "text": "Privacy", "url": "https://example.com/privacy" }].')
+    if (Array.isArray(raw)) {
+      raw.forEach((item: unknown, i) => {
+        const ok = isRecord(item) && typeof item.text === "string" && item.text.trim() !== "" && typeof item.url === "string" && isLink(item.url) && Object.keys(item).every((k) => k === "text" || k === "url")
+        if (ok) links.push({ text: item.text as string, url: item.url as string })
+        else ff.error("links", "invalid", `must be { "text": <words saying where it goes>, "url": <http, https or mailto address> }, got ${show(item)}.`, undefined, i)
+      })
+    }
+    ff.finish()
+    footer = { ...(text !== undefined ? { text } : {}), links }
+  }
+  const poweredBy = f.boolean("poweredBy", true)
+  const reportProblem = f.link("reportProblem")
+  f.finish()
+  return {
+    name: name ?? DEFAULT_PAGE.name,
+    mode,
+    poweredBy,
+    ...(link !== undefined ? { link } : {}),
+    ...(logo ? { logo } : {}),
+    ...(logoDark ? { logoDark } : {}),
+    ...(favicon !== undefined ? { favicon } : {}),
+    ...(theme !== undefined ? { theme } : {}),
+    ...(states ? { states } : {}),
+    ...(footer ? { footer } : {}),
+    ...(reportProblem !== undefined ? { reportProblem } : {}),
+  }
+}
+
+function isLink(value: string): boolean {
+  try {
+    return ["http:", "https:", "mailto:"].includes(new URL(value).protocol)
+  } catch {
+    return false
+  }
 }
 
 function readThresholds(root: Fields): Thresholds {
@@ -694,6 +829,27 @@ class Fields {
       return undefined
     }
     return value
+  }
+
+  /** An http, https or mailto address. */
+  link(key: string): string | undefined {
+    const value = this.string(key)
+    if (value !== undefined && !isLink(value)) {
+      this.error(key, "invalid", `must be an http, https or mailto address, got ${show(value)}.`)
+      return undefined
+    }
+    return value
+  }
+
+  /** A nested object's fields, or undefined when it's absent or not an object. */
+  object(key: string): Fields | undefined {
+    const value = this.raw(key)
+    if (value === undefined) return undefined
+    if (!isRecord(value)) {
+      this.error(key, "invalid", `must be an object, got ${show(value)}.`)
+      return undefined
+    }
+    return new Fields(value, `${this.where ? `${this.where}.` : ""}${key}`, `${this.at}${pointer(key)}`, this.issues)
   }
 
   stringList<T extends string = string>(key: string, opts: { required?: boolean; allowed?: readonly T[]; pattern?: RegExp; what?: string } = {}): T[] | undefined {

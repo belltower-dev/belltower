@@ -1,5 +1,5 @@
 import { resultsKey, RESULTS_FORMAT, type CheckResult, type ResultsFile } from "./check.ts"
-import type { Check, Config, HeartbeatCheck, HttpCheck, Thresholds } from "./config.ts"
+import type { Check, Config, HeartbeatCheck, HttpCheck, PageConfig, Thresholds } from "./config.ts"
 import { rollUp } from "./availability.ts"
 import { heartbeatKey, judgeHeartbeat, type HeartbeatRecord } from "./heartbeat.ts"
 import { maintenanceWindows, NOTES_FORMAT, NOTES_KEY, type PublicNotes } from "./notes.ts"
@@ -19,6 +19,8 @@ export const STATUS_FORMAT = "belltower.status/1"
 export const DECIDE_STATE_FORMAT = "belltower.decide/1"
 export const DECIDE_STATE_KEY = "state/decide.json"
 export const STATUS_KEY = "public/status.json"
+export const PAGE_FORMAT = "belltower.page/1"
+export const PAGE_KEY = "public/page.json"
 
 export type CheckState = "up" | "degraded" | "down" | "pending" | "maintenance"
 
@@ -118,6 +120,21 @@ export interface PublicStatus {
   overall: ComponentState
   components: { name: string; state: ComponentState }[]
   incidents: { id: string; components: string[]; startedAt: string }[]
+  /** Each region and when it last finished a run; null when it never has. */
+  regions: RegionStatus[]
+}
+
+export interface RegionStatus {
+  name: string
+  lastResultsAt: string | null
+}
+
+/** What the status page shows that comes from the config: the page section and each component's group, description, link and target. */
+export interface PublicPage {
+  format: typeof PAGE_FORMAT
+  writtenAt: string
+  page: PageConfig
+  components: { name: string; group?: string; description?: string; link?: string; target?: number }[]
 }
 
 interface DecideState {
@@ -128,6 +145,8 @@ interface DecideState {
   since?: string
   /** When public/history.json and the reports were last written. */
   rolledUpAt?: string
+  /** Region to the end of its newest run seen, kept past the minutes decide() reads. */
+  lastResults?: Record<string, string>
 }
 
 /** How often the history and reports are rewritten when nothing has changed. */
@@ -162,8 +181,11 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
   const width = Math.max(t.confirmMinutes, t.degradedMinutes, t.recoverMinutes) + 5
   const minutes = Array.from({ length: width }, (_, i) => new Date(last - (width - 1 - i) * MINUTE))
 
-  const files = await readResults(store, Object.keys(byRegion), minutes, problems)
+  const latest = new Map<string, string>()
+  const files = await readResults(store, Object.keys(byRegion), minutes, problems, latest)
   const state = await readState(store)
+  state.lastResults ??= {}
+  for (const [region, at] of latest) if (!state.lastResults[region] || at > state.lastResults[region]) state.lastResults[region] = at
   const report: DecideReport = { states: {}, opened: [], resolved: [], problems }
   const notes = await readNotes(store, problems)
   const windows = maintenanceWindows(notes)
@@ -275,12 +297,13 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
   const changed = report.opened.length > 0 || report.resolved.length > 0
   if (changed || !state.rolledUpAt || now.getTime() - Date.parse(state.rolledUpAt) >= ROLL_UP_EVERY) {
     await rollUp({ config, store, clock, since: new Date(state.since), maintenance: windows })
+    await store.put(PAGE_KEY, JSON.stringify(publicPage(config, now)), { contentType: "application/json" })
     state.rolledUpAt = now.toISOString()
   }
 
   await store.put(DECIDE_STATE_KEY, JSON.stringify(state), { contentType: "application/json" })
   const maintenance = new Set(config.components.map((c) => c.name).filter((name) => maintenanceEnd(name, now.getTime()) !== null))
-  await store.put(STATUS_KEY, JSON.stringify(publicStatus(config, report.states, [...open.values()], now, maintenance)), { contentType: "application/json" })
+  await store.put(STATUS_KEY, JSON.stringify(publicStatus(config, report.states, [...open.values()], now, maintenance, Object.keys(byRegion).map((name) => ({ name, lastResultsAt: state.lastResults?.[name] ?? null })))), { contentType: "application/json" })
   return report
 }
 
@@ -300,7 +323,7 @@ async function readNotes(store: Store, problems: string[]): Promise<PublicNotes 
 /** Region to minute (ms) to that run's results by check id. */
 type ResultsByRegion = Map<string, Map<number, Map<string, CheckResult>>>
 
-async function readResults(store: Store, regions: readonly string[], minutes: readonly Date[], problems: string[]): Promise<ResultsByRegion> {
+async function readResults(store: Store, regions: readonly string[], minutes: readonly Date[], problems: string[], latest: Map<string, string>): Promise<ResultsByRegion> {
   const out: ResultsByRegion = new Map()
   await Promise.all(
     regions.flatMap((region) =>
@@ -322,6 +345,8 @@ async function readResults(store: Store, regions: readonly string[], minutes: re
         const byMinute = out.get(region) ?? new Map<number, Map<string, CheckResult>>()
         out.set(region, byMinute)
         byMinute.set(minute.getTime(), new Map(file.results.map((r) => [r.id, r])))
+        const finished = typeof file.finishedAt === "string" ? file.finishedAt : minute.toISOString()
+        if (finished > (latest.get(region) ?? "")) latest.set(region, finished)
       }),
     ),
   )
@@ -462,6 +487,7 @@ export function publicStatus(
   open: readonly Incident[],
   now: Date,
   maintenance: ReadonlySet<string> = new Set(),
+  regions: readonly RegionStatus[] = [],
 ): PublicStatus {
   const publicChecks = new Set(config.checks.filter((c) => c.public).map((c) => c.id))
   const components = config.components.map((component) => {
@@ -484,5 +510,22 @@ export function publicStatus(
       const shown = Object.entries(i.checks).filter(([id]) => publicChecks.has(id))
       return shown.length ? [{ id: i.id, components: [...new Set(shown.map(([, c]) => c.component))], startedAt: i.startedAt }] : []
     }),
+    regions: regions.map((r) => ({ name: r.name, lastResultsAt: r.lastResultsAt })),
+  }
+}
+
+/** Written from an allowlist: the page section, and only the public fields of each component. */
+export function publicPage(config: Config, now: Date): PublicPage {
+  return {
+    format: PAGE_FORMAT,
+    writtenAt: now.toISOString(),
+    page: config.page,
+    components: config.components.map((c) => ({
+      name: c.name,
+      ...(c.group !== undefined ? { group: c.group } : {}),
+      ...(c.description !== undefined ? { description: c.description } : {}),
+      ...(c.link !== undefined ? { link: c.link } : {}),
+      ...(c.target !== undefined ? { target: c.target } : {}),
+    })),
   }
 }

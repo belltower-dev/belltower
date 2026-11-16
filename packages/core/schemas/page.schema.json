@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "belltower.page/1",
+  "title": "Belltower status page settings",
+  "description": "public/page.json: the config's page section and each component's public fields, written by decide(). buildPage() reads it with the other public files. Compatible within a major version: fields are only added.",
+  "type": "object",
+  "required": ["format", "writtenAt", "page", "components"],
+  "properties": {
+    "format": { "const": "belltower.page/1" },
+    "writtenAt": { "type": "string", "format": "date-time" },
+    "page": {
+      "type": "object",
+      "required": ["name", "mode", "poweredBy"],
+      "properties": {
+        "name": { "type": "string" },
+        "link": { "type": "string" },
+        "logo": { "$ref": "#/$defs/image" },
+        "logoDark": { "$ref": "#/$defs/image" },
+        "favicon": { "type": "string" },
+        "theme": { "type": ["string", "object"], "description": "A shadcn/ui registry theme, or the file path or URL of one, resolved at build." },
+        "states": {
+          "type": "object",
+          "properties": {
+            "operational": { "$ref": "#/$defs/color" },
+            "degraded": { "$ref": "#/$defs/color" },
+            "partial": { "$ref": "#/$defs/color" },
+            "major": { "$ref": "#/$defs/color" },
+            "maintenance": { "$ref": "#/$defs/color" },
+            "nodata": { "$ref": "#/$defs/color" }
+          },
+          "additionalProperties": false
+        },
+        "mode": { "enum": ["system", "light", "dark"] },
+        "footer": {
+          "type": "object",
+          "required": ["links"],
+          "properties": {
+            "text": { "type": "string" },
+            "links": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["text", "url"],
+                "properties": { "text": { "type": "string" }, "url": { "type": "string" } },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "poweredBy": { "type": "boolean" },
+        "reportProblem": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "array",
+      "description": "In config order. Components without a group share one.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "group": { "type": "string" },
+          "description": { "type": "string" },
+          "link": { "type": "string" },
+          "target": { "type": "number", "description": "Monthly availability target, as a percentage." }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "image": {
+      "type": "object",
+      "required": ["src", "alt"],
+      "properties": { "src": { "type": "string" }, "alt": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "color": {
+      "type": "object",
+      "required": ["light", "dark"],
+      "properties": { "light": { "type": "string" }, "dark": { "type": "string" } },
+      "additionalProperties": false
+    }
+  }
+}

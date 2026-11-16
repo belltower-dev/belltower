@@ -4,7 +4,7 @@
   "title": "Belltower current status",
   "description": "public/status.json: the current state of each component, written every minute by decide(). Compatible within a major version: fields are only added.",
   "type": "object",
-  "required": ["format", "writtenAt", "overall", "components", "incidents"],
+  "required": ["format", "writtenAt", "overall", "components", "incidents", "regions"],
   "properties": {
     "format": { "const": "belltower.status/1" },
     "writtenAt": { "type": "string", "format": "date-time", "description": "When decide() wrote this file. Older than 10 minutes means the monitor itself has stopped." },
@@ -31,6 +31,19 @@
           "id": { "type": "string" },
           "components": { "type": "array", "items": { "type": "string" }, "description": "Components with a public check in the incident." },
           "startedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "regions": {
+      "type": "array",
+      "description": "The regions checks run from. A region whose lastResultsAt is more than five minutes older than writtenAt has stopped writing results.",
+      "items": {
+        "type": "object",
+        "required": ["name", "lastResultsAt"],
+        "properties": {
+          "name": { "type": "string" },
+          "lastResultsAt": { "type": ["string", "null"], "format": "date-time", "description": "When its newest run finished; null when it has never written results." }
         },
         "additionalProperties": false
       }
