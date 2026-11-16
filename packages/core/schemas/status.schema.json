@@ -38,6 +38,6 @@
   },
   "additionalProperties": false,
   "$defs": {
-    "state": { "enum": ["operational", "degraded", "maintenance", "down"], "description": "Shown in words: Operational, Degraded, Maintenance, Down." }
+    "state": { "enum": ["operational", "degraded", "partial", "major", "maintenance"], "description": "Shown in words: Operational, Degraded performance, Partial outage, Major outage, Maintenance." }
   }
 }

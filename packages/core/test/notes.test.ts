@@ -64,10 +64,57 @@ describe("parseNote", () => {
       detected: [],
       body: "We're moving the API's database to a larger server. Requests may fail.",
       updates: [
-        { at: "2026-11-20T02:10:00.000Z", text: "Copying data." },
-        { at: "2026-11-20T02:40:00.000Z", text: "The copy is done; switching over now." },
+        { at: "2026-11-20T02:10:00.000Z", stage: "Update", components: [], text: "Copying data." },
+        { at: "2026-11-20T02:40:00.000Z", stage: "Update", components: [], text: "The copy is done; switching over now." },
       ],
     })
+  })
+
+  it("reads impact, stages and the components each update names", () => {
+    const text = [
+      "---", "type: incident", "title: Slow API", "components: API, Website", "start: 2026-11-21T09:00:00Z", "impact: Major", "---",
+      "Requests are slow.", "",
+      "## 2026-11-21 09:05 UTC Investigating", "Components: API (Degraded performance), Website (Operational)", "We're looking into it.", "",
+      "## 2026-11-21 09:30 UTC identified", "Components: API (Partial outage)", "A bad deploy. Rolling back.", "",
+      "## 2026-11-21 10:00 UTC", "Still watching.",
+    ].join("\n")
+    const { note, errors } = parseNote("slow-api.md", text, config())
+    expect(errors).toEqual([])
+    expect(note?.impact).toBe("major")
+    expect(note?.updates).toEqual([
+      { at: "2026-11-21T09:05:00.000Z", stage: "Investigating", components: [{ name: "API", state: "degraded" }, { name: "Website", state: "operational" }], text: "We're looking into it." },
+      { at: "2026-11-21T09:30:00.000Z", stage: "Identified", components: [{ name: "API", state: "partial" }], text: "A bad deploy. Rolling back." },
+      { at: "2026-11-21T10:00:00.000Z", stage: "Update", components: [], text: "Still watching." },
+    ])
+  })
+
+  it("refuses an unknown stage, impact, state or component in an update", () => {
+    const text = [
+      "---", "type: incident", "title: Slow API", "component: API", "start: 2026-11-21T09:00:00Z", "impact: severe", "---",
+      "## 2026-11-21 09:05 UTC Fixed", "Components: Billing (Degraded performance), API (Down)", "x",
+    ].join("\n")
+    const { note, errors } = parseNote("slow-api.md", text, config())
+    expect(note).toBeNull()
+    expect(errors.map((e) => `${e.field}: ${e.message}`)).toEqual([
+      'impact: is "severe".',
+      'stage: The update at 2026-11-21 09:05 UTC has the stage "Fixed".',
+      'components: In the update at 2026-11-21 09:05 UTC, "Billing" isn\'t a component in the config.',
+      'components: In the update at 2026-11-21 09:05 UTC, "Down" isn\'t a component state.',
+    ])
+  })
+
+  it("reads a notice with no components or times, starting when it's published", () => {
+    const text = "---\ntype: notice\ntitle: New address for the API\n---\nOn 1 December the API moves to api.example.com.\n"
+    const { note, errors } = parseNote("api-move.md", text, config(), new Date("2026-11-22T12:00:00Z"))
+    expect(errors).toEqual([])
+    expect(note).toMatchObject({ type: "notice", components: [], start: "2026-11-22T12:00:00.000Z" })
+    expect(note?.impact).toBeUndefined()
+    expect(parseNote("api-move.md", text, config()).errors.map((e) => e.field)).toEqual(["start"])
+  })
+
+  it("keeps impact and detected to incident notes", () => {
+    const text = maintenance.replace("type: maintenance", "type: maintenance\nimpact: major\ndetected: api-202611200205")
+    expect(parseNote("m.md", text, config()).errors.map((e) => e.field)).toEqual(["detected", "impact"])
   })
 
   it("reads an open incident that explains detected incidents", () => {

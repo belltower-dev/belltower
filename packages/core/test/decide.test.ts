@@ -275,9 +275,9 @@ describe("decide", () => {
     expect(await status(store)).toEqual({
       format: "belltower.status/1",
       writtenAt: "2026-11-15T10:02:30.000Z",
-      overall: "down",
+      overall: "major",
       components: [
-        { name: "Website", state: "down" },
+        { name: "Website", state: "major" },
         { name: "API", state: "operational" },
       ],
       incidents: [{ id: "home-202611151000", components: ["Website"], startedAt: "2026-11-15T10:00:00.000Z" }],

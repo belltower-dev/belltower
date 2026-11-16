@@ -3,6 +3,7 @@ import type { Check, Config, HeartbeatCheck, HttpCheck, Thresholds } from "./con
 import { rollUp } from "./availability.ts"
 import { heartbeatKey, judgeHeartbeat, type HeartbeatRecord } from "./heartbeat.ts"
 import { maintenanceWindows, NOTES_FORMAT, NOTES_KEY, type PublicNotes } from "./notes.ts"
+import { worst, type ComponentState } from "./states.ts"
 import type { Alert, Clock, HttpTiming, Notifier, Priority, Store } from "./ports.ts"
 
 /*
@@ -109,7 +110,6 @@ export interface Incident {
   resolvedAt?: string
 }
 
-export type ComponentState = "operational" | "degraded" | "maintenance" | "down"
 
 /** Written from an allowlist of fields: nothing from the config beyond component names. */
 export interface PublicStatus {
@@ -456,8 +456,6 @@ async function send(notifiers: readonly Notifier[], alert: Alert, problems: stri
   )
 }
 
-const RANK: Record<ComponentState, number> = { operational: 0, maintenance: 1, degraded: 2, down: 3 }
-
 export function publicStatus(
   config: Config,
   states: Readonly<Record<string, CheckState>>,
@@ -467,18 +465,16 @@ export function publicStatus(
 ): PublicStatus {
   const publicChecks = new Set(config.checks.filter((c) => c.public).map((c) => c.id))
   const components = config.components.map((component) => {
-    let state: ComponentState = "operational"
-    for (const check of config.checks) {
-      if (check.component !== component.name || !publicChecks.has(check.id)) continue
-      const s = states[check.id]
-      const mapped: ComponentState = s === "down" ? "down" : s === "degraded" ? "degraded" : "operational"
-      if (RANK[mapped] > RANK[state]) state = mapped
-    }
+    // Only checks decide() judged count, so a check type it doesn't judge yet never makes an outage look partial.
+    const judged = config.checks.filter((c) => c.component === component.name && publicChecks.has(c.id) && states[c.id] !== undefined).map((c) => states[c.id])
+    const down = judged.filter((s) => s === "down").length
+    let state: ComponentState = down === 0 ? "operational" : down === judged.length ? "major" : "partial"
+    if (state === "operational" && judged.includes("degraded")) state = "degraded"
     // Maintenance replaces anything but an incident that was already open when it began.
-    if (maintenance.has(component.name) && state !== "down") state = "maintenance"
+    if (maintenance.has(component.name) && down === 0) state = "maintenance"
     return { name: component.name, state }
   })
-  const overall = components.reduce<ComponentState>((worst, c) => (RANK[c.state] > RANK[worst] ? c.state : worst), "operational")
+  const overall = worst(components.map((c) => c.state))
   return {
     format: STATUS_FORMAT,
     writtenAt: now.toISOString(),

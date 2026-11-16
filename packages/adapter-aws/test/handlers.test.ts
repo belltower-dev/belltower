@@ -134,7 +134,7 @@ describe("createHandlers", () => {
     expect((await handlers.decide()).opened).toEqual(["home-202611151000"])
     expect(aws.emails).toHaveLength(1)
     expect(aws.texts).toHaveLength(0)
-    expect(JSON.parse(aws.objects.get("public/status.json") ?? "").overall).toBe("down")
+    expect(JSON.parse(aws.objects.get("public/status.json") ?? "").overall).toBe("major")
   })
 
   it("refuses to start with every missing setting listed", async () => {
