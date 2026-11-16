@@ -75,18 +75,18 @@ real AWS deployment of `examples/aws-sam`.
 - Priorities P1 to P5 on checks and components, notifiers that send up to
   a priority, and incident keys that fold related checks into one
   incident. Tested.
+- What the status page reads: five component states; component groups,
+  descriptions and links; the `page` config, published as
+  `public/page.json`; notices, impact, stages and component states in
+  notes; each region's last results time in `status.json`; response-time
+  medians and degraded minutes per day in `history.json`; `summary.json`
+  and the Atom, RSS and JSON feeds, built from the public files. Tested.
 
 **Next, in order:**
 
 1. Deploy `examples/aws-sam` to three regions and run phase 1's remaining
    done-when checks.
-2. What the status page reads (the design is chosen: the spec's "Status
-   page", reviewed as a preview): five component states, component groups,
-   descriptions and links, the `page` config with its branding, update
-   stages, impact, notices and component states in notes, each region's
-   last results time in `status.json`, a response-time aggregate that also
-   counts degraded minutes per day, `summary.json` and the feeds.
-3. `buildPage()`, following the spec's "Status page", including themes in
+2. `buildPage()`, following the spec's "Status page", including themes in
    the shadcn/ui format with the contrast check at build. Shared for review
    before it's committed.
 

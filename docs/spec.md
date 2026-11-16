@@ -572,7 +572,21 @@ From the config's `page` section:
 - `summary.json` follows the shape widely used by status page widgets and
   aggregators: the page, an overall status indicator and description,
   components with their states, open incidents, and scheduled maintenance.
-  Existing tools read a Belltower page without changes.
+  Existing tools read a Belltower page without changes. The indicator is
+  `none`, `minor`, `major`, `critical` or `maintenance` for Operational,
+  Degraded performance, Partial outage, Major outage and Maintenance;
+  component statuses are `operational`, `degraded_performance`,
+  `partial_outage`, `major_outage` and `under_maintenance`; each group is
+  also listed as a component with `group: true`. A detected incident no
+  note explains is listed as "Detected outage".
+- **Feeds** have one entry per incident and maintenance note (notices are
+  left out), newest change first, with the stage, the components, the
+  summary and every update in plain text. Upcoming maintenance is dated
+  from when it was published.
+- The builder is given the address the page is served from, for the
+  absolute links feeds and `summary.json` need. An incident's page is
+  `incidents/{id}.html`, a group's is `{group}.html`, where `{group}` is
+  its name in lowercase letters, digits and `-`.
 - `status.json`, `history.json` and the feeds sit beside it. All are
   readable from other sites (CORS allowed) and cached briefly.
 - **Markdown copies.** Each page has a copy at the same address with `.md`
