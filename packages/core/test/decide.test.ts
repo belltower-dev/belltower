@@ -102,13 +102,13 @@ function world(extraChecks: Record<string, unknown>[] = []) {
   const store = memoryStore()
   let now = Date.parse("2026-11-15T10:00:30Z")
   const sent: { to: string; alert: Alert }[] = []
-  const notifier = (to: string, levels: Notifier["levels"]): Notifier => ({ levels, send: async (alert) => void sent.push({ to, alert }) })
+  const notifier = (to: string, upTo: Notifier["upTo"]): Notifier => ({ upTo, send: async (alert) => void sent.push({ to, alert }) })
   const deps = {
     config: result.config,
     byRegion: result.byRegion,
     store,
     clock: { now: () => new Date(now) },
-    notifiers: [notifier("email", ["warn", "alert", "critical"]), notifier("sms", ["critical"])],
+    notifiers: [notifier("email", "P4"), notifier("sms", "P2")],
   }
   /** Records one minute of results (a letter per region in us, eu, ap order), then runs decide 30 seconds into the next minute. */
   async function minute(picture: string, ids = ["home"]) {
@@ -139,23 +139,23 @@ describe("decide", () => {
     const incident = report.opened[0]
     expect(incident).toMatchObject({
       id: "home-202611151001",
-      check: "home",
-      component: "Website",
-      level: "alert",
+      key: "home",
+      priority: "P3",
+      components: ["Website"],
       startedAt: "2026-11-15T10:01:00.000Z",
       detectedAt: "2026-11-15T10:03:30.000Z",
-      regions: ["ap", "eu", "us"],
     })
-    expect(incident?.firstFailures.us).toMatchObject({ at: "2026-11-15T10:01:00.000Z", status: 503, bodyStart: "Service Unavailable" })
-    expect(incident?.firstFailures.ap?.at).toBe("2026-11-15T10:02:00.000Z")
+    expect(incident?.checks.home).toMatchObject({ component: "Website", spans: [{ start: "2026-11-15T10:01:00.000Z" }], regions: ["ap", "eu", "us"] })
+    expect(incident?.checks.home?.firstFailures.us).toMatchObject({ at: "2026-11-15T10:01:00.000Z", status: 503, bodyStart: "Service Unavailable" })
+    expect(incident?.checks.home?.firstFailures.ap?.at).toBe("2026-11-15T10:02:00.000Z")
     expect(JSON.parse((await store.get("incidents/home-202611151001.json")) ?? "")).toEqual(incident)
 
     expect(sent).toEqual([
       {
         to: "email",
         alert: {
-          level: "alert",
-          title: "Down: home (Website)",
+          priority: "P3",
+          title: "P3 down: home (Website)",
           text: "home has failed in ap, eu, us since 10:01 UTC.\nGot status 503, expected 2xx.\nURL: https://www.example.com/\nBelltower will send another alert when it recovers.",
         },
       },
@@ -179,23 +179,93 @@ describe("decide", () => {
     const report = await minute("ppf")
     expect(report.resolved[0]).toMatchObject({ endedAt: "2026-11-15T10:02:00.000Z", resolvedAt: "2026-11-15T10:05:30.000Z" })
     expect(sent[1]?.alert).toEqual({
-      level: "alert",
-      title: "Recovered: home (Website)",
+      priority: "P3",
+      title: "P3 recovered: home (Website)",
       text: "home is passing again. It was down for 2 minutes, from 10:00 UTC to 10:02 UTC.",
     })
     expect(JSON.parse((await store.get("incidents/home-202611151000.json")) ?? "").resolvedAt).toBe("2026-11-15T10:05:30.000Z")
     expect((await status(store)).overall).toBe("operational")
   })
 
-  it("texts for a critical check as well as emailing", async () => {
-    const { minute, sent } = world([{ id: "private", type: "http", component: "API", url: "https://www.example.com/account", rejectKeyword: "balance", severity: "critical" }])
+  it("texts for a P1 check as well as emailing", async () => {
+    const { minute, sent } = world([{ id: "private", type: "http", component: "API", url: "https://www.example.com/account", rejectKeyword: "balance", priority: "P1" }])
     await minute("ppp", ["home", "private"])
     await minute("fff", ["private"])
     await minute("fff", ["private"])
-    expect(sent.map((s) => [s.to, s.alert.level, s.alert.title])).toEqual([
-      ["email", "critical", "Down: private (API)"],
-      ["sms", "critical", "Down: private (API)"],
+    expect(sent.map((s) => [s.to, s.alert.priority, s.alert.title])).toEqual([
+      ["email", "P1", "P1 down: private (API)"],
+      ["sms", "P1", "P1 down: private (API)"],
     ])
+  })
+
+  it("records a P5 incident without sending it", async () => {
+    const { minute, sent, store } = world([{ id: "batch", type: "http", component: "API", url: "https://batch.example.com/", priority: "P5" }])
+    await minute("ppp", ["home", "batch"])
+    await minute("fff", ["batch"])
+    const report = await minute("fff", ["batch"])
+    expect(report.opened.map((i) => i.priority)).toEqual(["P5"])
+    expect(sent).toEqual([])
+    expect(await store.get("incidents/batch-202611151001.json")).not.toBeNull()
+  })
+
+  it("folds checks that share an incident key into one incident and one alert", async () => {
+    const shared = { type: "http" as const, url: "https://db.example.com/", incidentKey: "database" }
+    const { minute, sent, store } = world([
+      { ...shared, id: "orders", component: "API" },
+      { ...shared, id: "search", component: "API", priority: "P2" },
+    ])
+    const all = ["home", "orders", "search"]
+    await minute("ppp", all)
+    await minute("fff", ["orders", "search"])
+    const report = await minute("fff", ["orders", "search"])
+    expect(report.opened).toHaveLength(1)
+    expect(report.opened[0]).toMatchObject({ id: "database-202611151001", key: "database", priority: "P2", components: ["API"] })
+    expect(Object.keys(report.opened[0]?.checks ?? {})).toEqual(["orders", "search"])
+    expect(sent.map((s) => [s.to, s.alert.title])).toEqual([
+      ["email", "P2 down: orders, search (API)"],
+      ["sms", "P2 down: orders, search (API)"],
+    ])
+    expect((await status(store)).incidents).toEqual([{ id: "database-202611151001", components: ["API"], startedAt: "2026-11-15T10:01:00.000Z" }])
+
+    // One check recovers; the incident stays open until the other does too.
+    for (let i = 0; i < 3; i++) await minute("ppp", ["home", "orders"])
+    expect(sent).toHaveLength(2)
+    const incident = JSON.parse((await store.get("incidents/database-202611151001.json")) ?? "")
+    expect(incident.checks.orders.spans).toEqual([{ start: "2026-11-15T10:01:00.000Z", end: "2026-11-15T10:03:00.000Z" }])
+    expect(incident.resolvedAt).toBeUndefined()
+    let resolved
+    for (let i = 0; i < 3; i++) resolved = await minute("ppp", all)
+    expect(resolved?.resolved[0]).toMatchObject({ id: "database-202611151001", endedAt: "2026-11-15T10:06:00.000Z" })
+    expect(sent.at(-1)?.alert.title).toBe("P2 recovered: orders, search (API)")
+  })
+
+  it("adds a check to an open incident silently unless it's more urgent", async () => {
+    const shared = { type: "http" as const, url: "https://db.example.com/", incidentKey: "database" }
+    const { minute, sent, store } = world([
+      { ...shared, id: "orders", component: "API" },
+      { ...shared, id: "search", component: "API" },
+      { ...shared, id: "billing", component: "Website", priority: "P1" },
+    ])
+    await minute("ppp", ["home", "orders", "search", "billing"])
+    await minute("fff", ["orders"])
+    await minute("fff", ["orders"])
+    expect(sent.map((s) => s.alert.title)).toEqual(["P3 down: orders (API)"])
+
+    // search joins at P3: recorded, no alert.
+    await minute("fff", ["orders", "search"])
+    await minute("fff", ["orders", "search"])
+    expect(sent).toHaveLength(1)
+
+    // billing joins at P1: the incident becomes P1 and the SMS notifier hears too.
+    await minute("fff", ["orders", "search", "billing"])
+    await minute("fff", ["orders", "search", "billing"])
+    expect(sent.slice(1).map((s) => [s.to, s.alert.title])).toEqual([
+      ["email", "P1 down: billing (Website)"],
+      ["sms", "P1 down: billing (Website)"],
+    ])
+    expect(sent[1]?.alert.text).toContain("Part of incident database-202611151001, with orders, search.")
+    const incident = JSON.parse((await store.get("incidents/database-202611151001.json")) ?? "null")
+    expect(incident).toMatchObject({ priority: "P1", components: ["API", "Website"] })
   })
 
   it("writes public status from public checks only, with the time it was written", async () => {
@@ -210,7 +280,7 @@ describe("decide", () => {
         { name: "Website", state: "down" },
         { name: "API", state: "operational" },
       ],
-      incidents: [{ id: "home-202611151000", component: "Website", startedAt: "2026-11-15T10:00:00.000Z" }],
+      incidents: [{ id: "home-202611151000", components: ["Website"], startedAt: "2026-11-15T10:00:00.000Z" }],
     })
   })
 
@@ -223,11 +293,11 @@ describe("decide", () => {
 
   it("keeps going when a notifier fails, and reports it", async () => {
     const { deps, minute } = world()
-    deps.notifiers = [{ levels: ["alert"], send: async () => Promise.reject(new Error("SMTP refused")) }, ...deps.notifiers]
+    deps.notifiers = [{ upTo: "P4", send: async () => Promise.reject(new Error("SMTP refused")) }, ...deps.notifiers]
     await minute("fff")
     const report = await minute("fff")
     expect(report.opened).toHaveLength(1)
-    expect(report.problems).toEqual(['Notifier 1 couldn\'t send "Down: home (Website)": SMTP refused'])
+    expect(report.problems).toEqual(['Notifier 1 couldn\'t send "P3 down: home (Website)": SMTP refused'])
   })
 
   it("skips a results file it can't read, and says which", async () => {

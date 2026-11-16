@@ -40,7 +40,7 @@ describe("snsNotifier", () => {
   it("texts every number, and reports how many failed without stopping the rest", async () => {
     const sent: string[] = []
     const notifier = snsNotifier(
-      { id: "pager", type: "sms", to: ["+15555550100", "+15555550101"], levels: ["critical"] },
+      { id: "pager", type: "sms", to: ["+15555550100", "+15555550101"], upTo: "P2" },
       ctx(async (_url, init) => {
         const number = new URLSearchParams(String(init?.body)).get("PhoneNumber") ?? ""
         if (number.endsWith("01")) return new Response("<Error><Code>InvalidParameter</Code><Message>bad number</Message></Error>", { status: 400 })
@@ -48,7 +48,7 @@ describe("snsNotifier", () => {
         return new Response("<PublishResponse/>")
       }),
     )
-    await expect(notifier.send({ level: "critical", title: "Down: home (Website)", text: "line one\nline two" })).rejects.toThrow(
+    await expect(notifier.send({ priority: "P3", title: "Down: home (Website)", text: "line one\nline two" })).rejects.toThrow(
       'Notifier "pager" couldn\'t send 1 of 2 texts through SNS: sns answered 400 InvalidParameter: bad number',
     )
     expect(sent).toEqual(["+15555550100"])

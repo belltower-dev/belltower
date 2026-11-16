@@ -398,3 +398,6 @@ becoming an on-call scheduling product.
   HttpClient port. Incidents keep each region's first failure, timing
   included; showing it to people comes with the status page and alert
   emails.
+- 13. Incident keys and priorities: the spec's "Checks", "The rest of the
+  config" and "Incidents and alerts", built in `decide()`. Acknowledging,
+  escalation, quiet hours and the inbound alert API wait for phase 3.

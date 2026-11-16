@@ -31,7 +31,7 @@ export async function smtpSettings(secrets: Secrets): Promise<SmtpSettings | { m
 export function emailNotifier(config: Extract<NotifierConfig, { type: "email" }>, settings: SmtpSettings): Notifier {
   const transport = createTransport(settings.url)
   return {
-    levels: config.levels,
+    upTo: config.upTo,
     async send(alert: Alert) {
       try {
         await transport.sendMail({

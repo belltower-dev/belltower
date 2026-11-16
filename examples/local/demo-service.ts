@@ -33,7 +33,7 @@ createServer((req, res) => {
     req.on("data", (c) => (body += c))
     req.on("end", () => {
       const alert = JSON.parse(body) as { level: string; title: string; text: string }
-      log(`ALERT (${alert.level}) ${alert.title}\n    ${alert.text.replace(/\n/g, "\n    ")}`)
+      log(`ALERT ${alert.title}\n    ${alert.text.replace(/\n/g, "\n    ")}`)
       send(204, "")
     })
     return

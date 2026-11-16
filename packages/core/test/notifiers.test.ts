@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { ALERT_FORMAT, buildNotifiers, webhookNotifier, type Alert } from "../src/index.ts"
 
-const alert: Alert = { level: "alert", title: "Down: home (Website)", text: "home has failed in us, eu since 10:01 UTC." }
+const alert: Alert = { priority: "P3", title: "Down: home (Website)", text: "home has failed in us, eu since 10:01 UTC." }
 const secrets = { get: async (name: string) => (name === "HOOK_URL" ? "https://hooks.example.com/abc" : null) }
-const hook = { id: "chat", type: "webhook" as const, secret: "HOOK_URL", levels: ["alert" as const] }
+const hook = { id: "chat", type: "webhook" as const, secret: "HOOK_URL", upTo: "P4" as const }
 
 describe("webhookNotifier", () => {
   it("posts the alert as versioned JSON to the URL in the secret", async () => {
@@ -16,7 +16,7 @@ describe("webhookNotifier", () => {
     expect(calls[0]?.url).toBe("https://hooks.example.com/abc")
     expect(calls[0]?.init?.method).toBe("POST")
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ format: ALERT_FORMAT, ...alert })
-    expect(notifier.levels).toEqual(["alert"])
+    expect(notifier.upTo).toEqual("P4")
   })
 
   it("fails with the status when the webhook refuses", async () => {
@@ -32,15 +32,15 @@ describe("webhookNotifier", () => {
 
 describe("buildNotifiers", () => {
   it("refuses a type the adapter has no sender for, naming the notifier", () => {
-    expect(() => buildNotifiers([{ id: "ops", type: "email", to: ["ops@example.com"], levels: ["alert"] }], { secrets })).toThrow(
+    expect(() => buildNotifiers([{ id: "ops", type: "email", to: ["ops@example.com"], upTo: "P4" }], { secrets })).toThrow(
       'Notifier "ops" is type email, which this adapter can\'t send yet.',
     )
   })
 
   it("uses the adapter's factory for email and sms", () => {
-    const made = buildNotifiers([{ id: "ops", type: "email", to: ["ops@example.com"], levels: ["alert"] }], {
+    const made = buildNotifiers([{ id: "ops", type: "email", to: ["ops@example.com"], upTo: "P4" }], {
       secrets,
-      others: { email: (c) => ({ levels: c.levels, send: async () => {} }) },
+      others: { email: (c) => ({ upTo: c.upTo, send: async () => {} }) },
     })
     expect(made).toHaveLength(1)
   })

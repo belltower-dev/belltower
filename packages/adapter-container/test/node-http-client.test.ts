@@ -102,7 +102,7 @@ describe("runHttpCheck with nodeHttpClient", () => {
     slowSeconds: 2,
     followRedirects: true,
     verifyTls: true,
-    severity: "normal",
+    priority: "P3",
     public: true,
     ...over,
   })

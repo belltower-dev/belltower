@@ -11,7 +11,7 @@ export const ALERT_FORMAT = "belltower.alert/1"
 /** The JSON a webhook receives. Versioned by `format`; fields are only added within a version. */
 export interface WebhookPayload {
   format: typeof ALERT_FORMAT
-  level: Alert["level"]
+  priority: Alert["priority"]
   title: string
   text: string
   url?: string
@@ -24,7 +24,7 @@ export function webhookNotifier(
   fetchImpl: typeof fetch = (input, init) => fetch(input, init),
 ): Notifier {
   return {
-    levels: config.levels,
+    upTo: config.upTo,
     async send(alert) {
       const url = await secrets.get(config.secret)
       if (!url) throw new Error(`The secret "${config.secret}" for notifier "${config.id}" isn't set. Set it to the webhook URL.`)

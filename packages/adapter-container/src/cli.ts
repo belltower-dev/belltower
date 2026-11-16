@@ -218,7 +218,7 @@ function withDryRun(store: Store, dryRun: boolean): Store {
 
 async function recording(setup: Setup, io: Io, into: Alert[]): Promise<Notifier[]> {
   // One recorder per configured notifier, so the dry run shows each alert once per notifier that would send it.
-  return (await containerNotifiers(setup.config, envSecrets(io.env))).map((n) => ({ levels: n.levels, send: async (alert: Alert) => void into.push(alert) }))
+  return (await containerNotifiers(setup.config, envSecrets(io.env))).map((n) => ({ upTo: n.upTo, send: async (alert: Alert) => void into.push(alert) }))
 }
 
 async function serve(setup: Setup, store: Store, notifiers: Notifier[], port: number, schedule: boolean, io: Io, json: boolean, signal?: AbortSignal): Promise<number> {
@@ -272,7 +272,7 @@ function describeResults(file: ResultsFile, dryRun: boolean): string {
 
 function describeDecision(report: DecideReport, wouldSend: Alert[] | null): string {
   const lines = [Object.entries(report.states).map(([id, s]) => `${id} ${s}`).join(", ") || "No checks to judge."]
-  for (const i of report.opened) lines.push(`Opened ${i.id}: ${i.summary.split("\n")[0]}`)
+  for (const i of report.opened) lines.push(`Opened ${i.id} (${i.priority}): ${Object.values(i.checks).map((c) => c.summary.split("\n")[0]).join(" ")}`)
   for (const i of report.resolved) lines.push(`Resolved ${i.id}.`)
   if (wouldSend) for (const a of wouldSend) lines.push(`Would send: ${a.title}`)
   for (const p of report.problems) lines.push(`Problem: ${p}`)

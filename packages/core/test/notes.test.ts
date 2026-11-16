@@ -135,7 +135,7 @@ describe("decide during maintenance", () => {
       byRegion: { us: ["home", "api"] },
       store,
       clock: { now: () => new Date(now) },
-      notifiers: [{ levels: ["alert" as const], send: async (a: Alert) => void sent.push(a) }],
+      notifiers: [{ upTo: "P4" as const, send: async (a: Alert) => void sent.push(a) }],
     }
     const fail = async (minute: string) => {
       const at = new Date(minute)

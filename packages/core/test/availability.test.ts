@@ -3,6 +3,7 @@ import {
   HISTORY_KEY,
   buildHistory,
   buildReport,
+  componentSpans,
   creditFor,
   decide,
   incidentKey,
@@ -45,15 +46,13 @@ function incident(check: string, component: string, startedAt: string, endedAt?:
   return {
     format: "belltower.incident/1",
     id: `${check}-${startedAt.slice(0, 16).replace(/[-T:]/g, "")}`,
-    check,
-    component,
-    level: "alert",
+    key: check,
+    priority: "P3",
+    components: [component],
+    checks: { [check]: { component, spans: [{ start: startedAt, ...(endedAt ? { end: endedAt } : {}) }], summary: "", regions: ["us"], firstFailures: {} } },
     startedAt,
     detectedAt: startedAt,
     ...(endedAt ? { endedAt, resolvedAt: endedAt } : {}),
-    summary: "",
-    regions: ["us"],
-    firstFailures: {},
   }
 }
 
@@ -79,6 +78,18 @@ describe("spans", () => {
 })
 
 const since = new Date("2026-10-01T00:00:00Z")
+
+describe("componentSpans", () => {
+  it("counts each check's own spans when an incident covers several components", () => {
+    const shared = incident("home", "Website", "2026-11-01T10:00:00Z", "2026-11-01T11:00:00Z")
+    shared.components.push("API")
+    shared.checks.api = { component: "API", spans: [{ start: "2026-11-01T10:10:00Z", end: "2026-11-01T10:20:00Z" }, { start: "2026-11-01T10:40:00Z", end: "2026-11-01T10:45:00Z" }], summary: "", regions: ["us"], firstFailures: {} }
+    shared.checks.internal = { component: "Website", spans: [{ start: "2026-11-01T09:00:00Z", end: "2026-11-01T12:00:00Z" }], summary: "", regions: ["us"], firstFailures: {} }
+    const spans = componentSpans(config(), [shared], [], new Date("2026-11-02T00:00:00Z"))
+    expect(spans.get("Website")?.down).toEqual([span("2026-11-01T10:00Z", "2026-11-01T11:00Z")])
+    expect(spans.get("API")?.down).toEqual([span("2026-11-01T10:10Z", "2026-11-01T10:20Z"), span("2026-11-01T10:40Z", "2026-11-01T10:45Z")])
+  })
+})
 
 describe("buildHistory", () => {
   it("gives 90 UTC days per component, with outages split across midnight", () => {

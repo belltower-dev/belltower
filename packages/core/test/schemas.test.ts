@@ -60,14 +60,12 @@ function config(): Config {
 const incident = {
   format: "belltower.incident/1" as const,
   id: "home-202611151000",
-  check: "home",
-  component: "Website",
-  level: "alert" as const,
+  key: "home",
+  priority: "P3" as const,
+  components: ["Website"],
+  checks: { home: { component: "Website", spans: [{ start: "2026-11-15T10:00:00.000Z" }], summary: "home has failed in us since 10:00 UTC.", regions: ["us"], firstFailures: {} } },
   startedAt: "2026-11-15T10:00:00.000Z",
   detectedAt: "2026-11-15T10:02:30.000Z",
-  summary: "home has failed in us since 10:00 UTC.",
-  regions: ["us"],
-  firstFailures: {},
 }
 const now = new Date("2026-11-15T12:00:00Z")
 const since = new Date("2026-10-01T00:00:00Z")

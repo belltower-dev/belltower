@@ -35,12 +35,12 @@ describe("validateConfig", () => {
       slowSeconds: 5,
       followRedirects: true,
       verifyTls: true,
-      severity: "normal",
+      priority: "P3",
       public: true,
     })
     expect(result.config.thresholds).toEqual(DEFAULT_THRESHOLDS)
-    expect(result.config.components[0]).toEqual({ name: "Website", critical: false, credits: [] })
-    expect(result.config.notifiers[0]).toEqual({ id: "ops", type: "email", to: ["ops@example.com"], levels: ["warn", "alert", "critical"] })
+    expect(result.config.components[0]).toEqual({ name: "Website", credits: [] })
+    expect(result.config.notifiers[0]).toEqual({ id: "ops", type: "email", to: ["ops@example.com"], upTo: "P4" })
     expect(result.byRegion).toEqual({ us: ["home"], eu: ["home"] })
   })
 
@@ -189,23 +189,56 @@ describe("validateConfig", () => {
     expect(errorsFor(config)).toContain('checks (mail).heartbeat: "home" is a http check. Name a heartbeat check.')
   })
 
-  it("requires an sms notifier for critical checks and components", () => {
+  it("takes a check's priority from its component unless it sets its own", () => {
+    const config = base()
+    config.components[0] = { name: "Website", priority: "P2" } as { name: string }
+    config.checks.push({ id: "assets", type: "http", component: "Website", url: "https://cdn.example.com/", priority: 4 })
+    config.checks.push({ id: "status", type: "http", component: "API", url: "https://api.example.com/", priority: "p1" })
+    const result = validateConfig(config, regions)
+    if (!result.ok) throw new Error(result.errors.join("\n"))
+    expect(result.config.checks.map((c) => [c.id, c.priority])).toEqual([
+      ["home", "P2"],
+      ["assets", "P4"],
+      ["status", "P1"],
+    ])
+    expect(result.config.components[0]).toEqual({ name: "Website", priority: "P2", credits: [] })
+  })
+
+  it("refuses a priority outside P1 to P5", () => {
+    const config = base()
+    config.checks[0] = { ...config.checks[0], priority: "P6" }
+    expect(errorsFor(config)).toEqual(['checks[0] (home).priority: must be one of P1, P2, P3, P4, P5, got "P6".'])
+  })
+
+  it("says what replaced severity, critical and levels", () => {
     const config = base()
     config.checks[0] = { ...config.checks[0], severity: "critical" }
     config.components[0] = { name: "Website", critical: true } as { name: string }
+    config.notifiers[0] = { ...config.notifiers[0], levels: ["critical"] } as never
     const errors = errorsFor(config)
-    expect(errors).toHaveLength(2)
-    expect(errors[0]).toContain("checks (home).severity: critical checks also alert by SMS")
-    expect(errors[1]).toContain("components (Website).critical")
+    expect(errors).toHaveLength(3)
+    expect(errors.join("\n")).toContain('components[0] (Website).critical: was replaced by priority. Use "priority": "P1"')
+    expect(errors.join("\n")).toContain('notifiers[0] (ops).levels: was replaced by upTo.')
+    expect(errors.join("\n")).toContain('checks[0] (home).severity: was replaced by priority.')
   })
 
-  it("accepts a critical check with an sms notifier, which defaults to critical alerts only", () => {
+  it("defaults notifiers to P4, SMS to P2, and refuses upTo P5", () => {
     const config = base()
-    config.checks[0] = { ...config.checks[0], severity: "critical" }
     config.notifiers.push({ id: "pager", type: "sms", to: ["+15555550100"] } as never)
     const result = validateConfig(config, regions)
-    expect(result.ok).toBe(true)
-    if (result.ok) expect(result.config.notifiers[1]?.levels).toEqual(["critical"])
+    if (!result.ok) throw new Error(result.errors.join("\n"))
+    expect(result.config.notifiers.map((n) => n.upTo)).toEqual(["P4", "P2"])
+    config.notifiers[1] = { id: "pager", type: "sms", to: ["+15555550100"], upTo: "P5" } as never
+    expect(errorsFor(config)).toEqual(['notifiers[1] (pager).upTo: must be one of P1, P2, P3, P4, got "P5" (P5 is recorded and never sent).'])
+  })
+
+  it("accepts an incident key and refuses one that isn't an id", () => {
+    const config = base()
+    config.checks[0] = { ...config.checks[0], incidentKey: "database" }
+    const result = validateConfig(config, regions)
+    expect(result.ok && result.config.checks[0]?.incidentKey).toBe("database")
+    config.checks[0] = { ...config.checks[0], incidentKey: "Main DB" }
+    expect(errorsFor(config)[0]).toContain('checks[0] (home).incidentKey: "Main DB" must use lowercase letters')
   })
 
   it("refuses an sms notifier when no region can send SMS", () => {
@@ -226,7 +259,6 @@ describe("validateConfig", () => {
     const result = validateConfig(config, regions)
     expect(result.ok && result.config.components[0]).toEqual({
       name: "Website",
-      critical: false,
       target: 99.9,
       credits: [
         { below: 99.9, percent: 10 },

@@ -36,7 +36,7 @@ function world() {
     store,
     clock: { now: () => new Date(now) },
     secrets: { get: async (name: string) => tokens[name] ?? null },
-    notifiers: [{ levels: ["alert", "critical"] as const, send: async (a: Alert) => void sent.push(a) }],
+    notifiers: [{ upTo: "P4" as const, send: async (a: Alert) => void sent.push(a) }],
   }
   const ping = (path: string, method = "GET") => handle(new Request(`https://monitor.example.com${path}`, { method }), deps)
   const record = async (id: string) => JSON.parse((await store.get(heartbeatKey(id))) ?? "null") as HeartbeatRecord | null
@@ -135,10 +135,11 @@ describe("decide with heartbeats", () => {
     expect((await decide(deps)).opened).toEqual([])
     advance(60_000)
     const report = await decide(deps)
-    expect(report.opened[0]).toMatchObject({ id: "nightly-202611151105", startedAt: "2026-11-15T11:05:00.000Z", regions: [] })
+    expect(report.opened[0]).toMatchObject({ id: "nightly-202611151105", startedAt: "2026-11-15T11:05:00.000Z" })
+    expect(report.opened[0]?.checks.nightly?.regions).toEqual([])
     expect(sent[0]).toEqual({
-      level: "alert",
-      title: "Down: nightly (Jobs)",
+      priority: "P3",
+      title: "P3 down: nightly (Jobs)",
       text: "nightly hasn't reported a success since 2026-11-15 10:00 UTC. One was due by 2026-11-15 11:05 UTC.\nBelltower will send another alert when it recovers.",
     })
     advance(10 * 60_000)

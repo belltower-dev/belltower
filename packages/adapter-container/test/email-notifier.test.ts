@@ -45,14 +45,14 @@ beforeAll(async () => {
 })
 afterAll(() => new Promise<void>((resolve) => smtp.close(() => resolve())))
 
-const config = { id: "ops", type: "email" as const, to: ["ops@example.com", "oncall@example.com"], levels: ["alert" as const] }
+const config = { id: "ops", type: "email" as const, to: ["ops@example.com", "oncall@example.com"], upTo: "P4" as const }
 const settings = () => ({ url: `smtp://127.0.0.1:${port}?ignoreTLS=true`, from: "Belltower <alerts@example.com>" })
 
 describe("emailNotifier", () => {
   it("sends the alert as a plain-text email to every recipient", async () => {
     received.length = 0
     await emailNotifier(config, settings()).send({
-      level: "alert",
+      priority: "P3",
       title: "Down: home (Website)",
       text: "home has failed in us, eu since 10:01 UTC.\nGot status 503, expected 2xx.",
     })
@@ -69,7 +69,7 @@ describe("emailNotifier", () => {
   it("fails with the notifier's id when the server refuses", async () => {
     refuseRecipients = true
     try {
-      await expect(emailNotifier(config, settings()).send({ level: "alert", title: "Down", text: "x" })).rejects.toThrow('Notifier "ops" couldn\'t send email')
+      await expect(emailNotifier(config, settings()).send({ priority: "P3", title: "Down", text: "x" })).rejects.toThrow('Notifier "ops" couldn\'t send email')
     } finally {
       refuseRecipients = false
     }

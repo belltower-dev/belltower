@@ -98,7 +98,7 @@ describe("belltower run", () => {
     hooks.length = 0
     expect(await run("run", "decide")).toBe(0)
     expect(out.join("\n")).toContain("Opened home-")
-    expect(hooks).toEqual([expect.objectContaining({ format: "belltower.alert/1", level: "alert", title: "Down: home (Website)" })])
+    expect(hooks).toEqual([expect.objectContaining({ format: "belltower.alert/1", priority: "P3", title: "P3 down: home (Website)" })])
   })
 
   it("shows the alerts a dry run would send, and sends none", async () => {
@@ -107,7 +107,7 @@ describe("belltower run", () => {
     hooks.length = 0
     expect(await run("run", "decide", "--dry-run", "--json")).toBe(0)
     const parsed = JSON.parse(out[0] ?? "")
-    expect(parsed.result.alerts).toEqual([expect.objectContaining({ title: "Down: home (Website)" })])
+    expect(parsed.result.alerts).toEqual([expect.objectContaining({ title: "P3 down: home (Website)" })])
     expect(hooks).toEqual([])
     await expect(readdir(join(dir, "data/incidents"))).rejects.toThrow()
   })

@@ -172,7 +172,8 @@ A deployment's config lists checks:
 | `slowSeconds` | Slower than this counts as Degraded, not Down | 5 |
 | `followRedirects`, `verifyTls` | | `true`, `true` |
 | `regions` | Which regions run it | all |
-| `severity` | `normal` or `critical` (critical also sends SMS) | `normal` |
+| `priority` | `P1` (most urgent) to `P5`; picks which notifiers send its alerts (see "Incidents and alerts"). Written `"P1"` or `1` | its component's, else `P3` |
+| `incidentKey` | Checks with the same key share one incident, such as `database` for every check that fails when the database does | the check id |
 | `public` | Whether it shows on the status page | `true` |
 
 Checks send the user agent `Belltower/<version>` so the watched service
@@ -190,9 +191,9 @@ Besides `checks`, a config has:
 
 | Section | Fields | Default |
 | --- | --- | --- |
-| `components` | `name`; `critical` (down alerts for its checks also go by SMS); `target` (monthly availability percentage, such as 99.9); `credits` (tiers such as `[{ "below": 99.9, "percent": 10 }, { "below": 99, "percent": 25 }]`); `group` (the heading it's listed under on the page, such as "Europe" or "Storage"); `description` (one line); `link` (the thing itself, such as the web app's address) | `critical: false`, no target, no credits, no group |
+| `components` | `name`; `priority` (for its checks that don't set one); `target` (monthly availability percentage, such as 99.9); `credits` (tiers such as `[{ "below": 99.9, "percent": 10 }, { "below": 99, "percent": 25 }]`); `group` (the heading it's listed under on the page, such as "Europe" or "Storage"); `description` (one line); `link` (the thing itself, such as the web app's address) | `P3`, no target, no credits, no group |
 | `page` | The status page and its branding (see "Status page") | |
-| `notifiers` | `id`; `type` (`email`, `sms`, `webhook`); `to` (email addresses, or phone numbers in international format such as `+15555550100`); `secret` (webhook only: the name of the secret holding the URL); `levels` | `levels`: `warn`, `alert`, `critical`, or only `critical` for SMS |
+| `notifiers` | `id`; `type` (`email`, `sms`, `webhook`); `to` (email addresses, or phone numbers in international format such as `+15555550100`); `secret` (webhook only: the name of the secret holding the URL); `upTo` (the lowest priority it sends, `P1` to `P4`: `P2` sends P1 and P2) | `upTo`: `P4`, or `P2` for SMS |
 | `thresholds` | `confirmRegions`, `confirmMinutes`, `degradedMinutes`, `recoverRegions`, `recoverMinutes`, `repeatAlertMinutes` | 2, 2, 5, 2, 3, 30 (see "Deciding that something is down") |
 
 The adapter supplies the regions and what each can do; the config names
@@ -216,8 +217,11 @@ The same issues also come as one readable line each.
 - A check whose `component` isn't in `components`.
 - `slowSeconds` at or above `timeoutSeconds`, `alertDays` above `warnDays`,
   a body on a `GET` or `HEAD`, or a keyword on a `HEAD`.
-- A critical check or component with no `sms` notifier, or an `sms` notifier
-  when no region's adapter can send SMS.
+- An `sms` notifier when no region's adapter can send SMS.
+- A priority outside `P1` to `P5`, a notifier `upTo` of `P5`, or an
+  `incidentKey` that isn't an id.
+- `severity`, a component's `critical` or a notifier's `levels`, from
+  earlier drafts: the error names the field that replaced it.
 - A check no region can run ("Capabilities").
 
 ### HTTP
@@ -228,7 +232,7 @@ The same issues also come as one readable line each.
   private content is showing.
 - `rejectKeyword` is how a deployment checks that protected content stays
   protected: request a private page signed out and reject a phrase from its
-  body. Mark such checks `critical`, since a failure is a data exposure, not
+  body. Give such checks priority `P1`, since a failure is a data exposure, not
   an outage.
 - **Each result records** whether it passed, whether it was slow, and its
   timing in milliseconds: time to first byte (from the start of the request
@@ -311,32 +315,45 @@ instructions: [certificates.md](certificates.md).
 
 ## Incidents and alerts
 
-- **Opened automatically** when a check is confirmed down, starting at the
-  first failing minute. Its id is the check id and that minute in UTC
-  (`home-202611151001`).
-- **Each incident keeps** the check, component, regions, start and end, and
-  from the first failure in each region: status code, timing, response
-  headers and the first 2 KB of the body.
+- **One incident per problem.** A check confirmed down opens an incident
+  starting at its first failing minute, or joins the open incident for its
+  `incidentKey`. The id is the key (the check id when there's no key) and
+  the first failing minute in UTC (`home-202611151001`,
+  `database-202611151001`).
+- **Each incident keeps** its key, priority, components, start and end, and
+  for each of its checks: the component, when it was down (a check that
+  recovers and fails again while the incident is open gets another span),
+  a summary, the regions, and from the first failure in each region the
+  status code, timing, response headers and the first 2 KB of the body.
+- **Priority** is the most urgent of its checks' priorities. A check's
+  priority is its own, else its component's, else `P3`.
 - **Alerts:**
-  - On open and on recovery, through every configured notifier.
-  - SMS only for `critical` checks and for components marked critical.
+  - On open and on resolution, to every notifier whose `upTo` covers the
+    incident's priority. By default email and webhook notifiers send P1 to
+    P4 and SMS sends P1 and P2. P5 incidents are recorded and never sent.
+  - A check that joins an open incident sends an alert only when its
+    priority is more urgent than the incident's, which then takes it.
+    Otherwise it's recorded without an alert, so a database outage that
+    breaks five checks pages once.
+  - Titles start with the priority and name the checks and components:
+    `P1 down: orders, search (API)`, `P1 recovered: ...`.
   - The open alert repeats every 30 minutes until acknowledged, by a signed
     link in the alert.
-- **Resolved automatically** on recovery; the recovery alert gives the
-  duration, which ends at the first minute of the passing streak.
+- **Resolved automatically** when every check in it has recovered; the
+  recovery alert gives the duration, which ends at the first minute of the
+  last check's passing streak.
+- **Availability** counts each public check's own spans, so a component is
+  down only while one of its own public checks was, even when the incident
+  ran longer for another component.
 - **Alerts go out at least once.** `decide()` writes the incident, sends
   the alert, then records that it did. If it stops in between, the next run
   sends the alert again rather than never. A notifier that fails doesn't
   stop the others; the failure is in `decide()`'s report.
 - **Webhook notifiers** POST JSON to the URL in their secret:
-  `{ "format": "belltower.alert/1", "level", "title", "text", "url" }`.
+  `{ "format": "belltower.alert/1", "priority", "title", "text", "url" }`.
   Fields are only added within a format version. The core sends webhooks
   itself; adapters supply email and SMS, and a notifier type the adapter
   can't send stops it at startup with the notifier's id.
-- **Alert level:** `critical` for critical checks and checks in critical
-  components, `alert` otherwise. Each notifier sends the levels it's
-  configured for, so SMS notifiers (default `critical` only) text only for
-  those.
 - **Public incident notes** are Markdown files in the deployment's
   repository, written by hand: title, component, start, end, updates with
   times. A detected incident shows as "Detected outage" until a note names
@@ -670,7 +687,7 @@ version: fields are only added. A test checks real output against them.
 
 `public/status.json` is written from an allowlist: the time it was written,
 the overall state, each component's name and state, the open incidents
-(id, component, start), and each region's name and the time of its last
+(id, the components of their public checks, start), and each region's name and the time of its last
 results. Only public checks count toward it. Nothing else
 from the config, the results or the incidents is copied into it.
 

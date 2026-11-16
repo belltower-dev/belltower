@@ -49,7 +49,7 @@ function fakeAws() {
 }
 
 const config = {
-  components: [{ name: "Website" }, { name: "Jobs", critical: true }],
+  components: [{ name: "Website" }, { name: "Jobs", priority: "P1" }],
   notifiers: [
     { id: "ops", type: "email", to: ["ops@example.com"] },
     { id: "pager", type: "sms", to: ["+15555550100"] },
@@ -101,7 +101,7 @@ describe("createHandlers", () => {
     expect((await handlers.http(ping("/hb/wrong"))).statusCode).toBe(404)
   })
 
-  it("emails through SES and texts through SNS when a critical heartbeat fails", async () => {
+  it("emails through SES and texts through SNS when a P1 heartbeat fails", async () => {
     const { handlers, aws } = setup()
     await handlers.http(ping("/hb/n1ghtly/fail"))
     const report = await handlers.decide()
@@ -110,13 +110,13 @@ describe("createHandlers", () => {
       expect.objectContaining({
         FromEmailAddress: "alerts@example.com",
         Destination: { ToAddresses: ["ops@example.com"] },
-        Content: { Simple: expect.objectContaining({ Subject: { Data: "Down: nightly (Jobs)", Charset: "UTF-8" } }) },
+        Content: { Simple: expect.objectContaining({ Subject: { Data: "P1 down: nightly (Jobs)", Charset: "UTF-8" } }) },
       }),
     ])
     expect(aws.texts).toHaveLength(1)
     expect(aws.texts[0]?.get("Action")).toBe("Publish")
     expect(aws.texts[0]?.get("PhoneNumber")).toBe("+15555550100")
-    expect(aws.texts[0]?.get("Message")).toContain("Down: nightly (Jobs)")
+    expect(aws.texts[0]?.get("Message")).toContain("P1 down: nightly (Jobs)")
     expect(aws.services).toEqual(expect.arrayContaining(["ses", "sns"]))
   })
 

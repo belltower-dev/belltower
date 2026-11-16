@@ -78,11 +78,15 @@ export function componentSpans(
   const publicChecks = new Set(config.checks.filter((c) => c.public).map((c) => c.id))
   const out = new Map<string, { down: Span[]; maintenance: Span[]; incidents: Incident[] }>()
   for (const component of config.components) {
-    const own = incidents.filter((i) => i.component === component.name && publicChecks.has(i.check))
+    // Each public check in the component counts for its own spans, not the whole incident's.
+    const parts = (i: Incident) => Object.entries(i.checks ?? {}).filter(([id, c]) => c.component === component.name && publicChecks.has(id))
+    const own = incidents.filter((i) => parts(i).length > 0)
     const maint = merge(
       maintenance.filter((m) => m.component === component.name).map((m) => ({ start: Date.parse(m.start), end: Date.parse(m.end) })),
     )
-    const down = merge(own.map((i) => ({ start: Date.parse(i.startedAt), end: i.endedAt ? Date.parse(i.endedAt) : now.getTime() })))
+    const down = merge(
+      own.flatMap((i) => parts(i).flatMap(([, c]) => c.spans.map((s) => ({ start: Date.parse(s.start), end: s.end ? Date.parse(s.end) : now.getTime() })))),
+    )
     out.set(component.name, { down: subtract(down, maint), maintenance: maint, incidents: own })
   }
   return out

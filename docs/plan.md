@@ -72,20 +72,21 @@ real AWS deployment of `examples/aws-sam`.
   `belltower notes push`, with maintenance holding back incidents, alerts
   and downtime, and accessibility warnings on note content. Tested.
 - esbuild in `examples/aws-sam`; the Lambda bundle is 64 KB.
+- Priorities P1 to P5 on checks and components, notifiers that send up to
+  a priority, and incident keys that fold related checks into one
+  incident. Tested.
 
 **Next, in order:**
 
 1. Deploy `examples/aws-sam` to three regions and run phase 1's remaining
    done-when checks.
-2. Priorities P1 to P5 and incident keys, replacing `severity` and
-   `critical` in the config and one-incident-per-check in `decide`.
-3. What the status page reads (the design is chosen: the spec's "Status
+2. What the status page reads (the design is chosen: the spec's "Status
    page", reviewed as a preview): five component states, component groups,
    descriptions and links, the `page` config with its branding, update
    stages, impact, notices and component states in notes, each region's
    last results time in `status.json`, a response-time aggregate that also
    counts degraded minutes per day, `summary.json` and the feeds.
-4. `buildPage()`, following the spec's "Status page", including themes in
+3. `buildPage()`, following the spec's "Status page", including themes in
    the shadcn/ui format with the contrast check at build. Shared for review
    before it's committed.
 
@@ -137,7 +138,7 @@ examples/
       within three minutes and recovers within four minutes of the fix.
 - [ ] A heartbeat that misses its period plus grace alerts; a `/fail` alerts
       at once; the next success recovers.
-- [ ] A `rejectKeyword` check alerts as critical when the phrase appears.
+- [ ] A `rejectKeyword` check with priority P1 alerts by SMS when the phrase appears.
 - [ ] No `@aws-sdk` or Node built-in import in `packages/core`.
 
 ## Phase 2: status page and availability
@@ -186,7 +187,7 @@ examples/
 - [ ] A recorded 47-day certificate warns when a third of its life is left
       and alerts at seven days.
 - [ ] A domain with no RDAP expiration reports Unsupported, never Up.
-- [ ] A critical check texts, repeats after 30 minutes and stops once
+- [ ] A P1 check texts, repeats after 30 minutes and stops once
       acknowledged.
 
 ## Phase 4: Cloudflare, deploy examples, public release

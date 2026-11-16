@@ -1,5 +1,5 @@
 import { assignChecks, type CheckType, type Region } from "./capabilities.ts"
-import type { AlertLevel } from "./ports.ts"
+import { PRIORITIES, type Priority } from "./ports.ts"
 
 /*
  * The deployment's config (docs/spec.md, "Checks", "The rest of the config"
@@ -8,14 +8,15 @@ import type { AlertLevel } from "./ports.ts"
  * and assigns checks to regions.
  */
 
-export type Severity = "normal" | "critical"
-
 interface CheckBase {
   id: string
   component: string
   /** Regions named in config; every region when absent. */
   regions?: readonly string[]
-  severity: Severity
+  /** The check's own priority, else its component's, else P3. */
+  priority: Priority
+  /** Checks with the same key share one incident. The check id when absent. */
+  incidentKey?: string
   public: boolean
 }
 
@@ -95,8 +96,8 @@ export interface CreditTier {
 
 export interface Component {
   name: string
-  /** Down alerts for any check in this component also go by SMS. */
-  critical: boolean
+  /** The priority of its checks that don't set their own. */
+  priority?: Priority
   /** Monthly availability target, as a percentage, such as 99.9. */
   target?: number
   /** Credit tiers, highest threshold first. */
@@ -105,7 +106,8 @@ export interface Component {
 
 interface NotifierBase {
   id: string
-  levels: readonly AlertLevel[]
+  /** The lowest priority this notifier sends: "P3" sends P1, P2 and P3. */
+  upTo: Priority
 }
 
 export type NotifierConfig =
@@ -198,8 +200,10 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   repeatAlertMinutes: 30,
 }
 
+const DEFAULT_PRIORITY: Priority = "P3"
+/** Checks that didn't set a priority, so they take their component's. */
+const inheritsPriority = new WeakSet<Check>()
 const CHECK_TYPES: readonly CheckType[] = ["http", "heartbeat", "email", "tls", "domain"]
-const ALERT_LEVELS: readonly AlertLevel[] = ["info", "warn", "alert", "critical"]
 const METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 const ID = /^[a-z0-9][a-z0-9_-]*$/
 const HOST = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i
@@ -231,6 +235,8 @@ export function validateConfig(input: unknown, regions: readonly Region[]): Conf
   unique(checks, (c) => c.id, "checks", "id", issues)
 
   const at = (check: Check, field: string) => pointer("checks", positions.get(check) ?? 0, field)
+  const componentPriority = new Map(components.map((c) => [c.name, c.priority]))
+  for (const check of checks) if (inheritsPriority.has(check)) check.priority = componentPriority.get(check.component) ?? DEFAULT_PRIORITY
   const componentNames = new Set(components.map((c) => c.name))
   const byId = new Map(checks.map((c) => [c.id, c]))
   for (const check of checks) {
@@ -249,19 +255,6 @@ export function validateConfig(input: unknown, regions: readonly Region[]): Conf
     const index = notifiers.findIndex((n) => n.type === "sms")
     issues.add("notifiers", pointer("notifiers", positions.get(notifiers[index] ?? {}) ?? index, "type"), "missing-capability", "an sms notifier is configured, but no region's adapter can send SMS.", "Run decide() on an adapter that can (aws), or remove the sms notifier.")
   }
-  if (!hasSms && notifiers.length) {
-    for (const check of checks) {
-      if (check.severity === "critical") {
-        issues.add(`${label(check)}.severity`, at(check, "severity"), "conflict", "critical checks also alert by SMS, and no sms notifier is configured.", 'Add an sms notifier, or set severity to "normal".')
-      }
-    }
-    for (const component of components) {
-      if (component.critical) {
-        issues.add(`components (${component.name}).critical`, pointer("components", positions.get(component) ?? 0, "critical"), "conflict", "critical components also alert by SMS, and no sms notifier is configured.", "Add an sms notifier, or set critical to false.")
-      }
-    }
-  }
-
   if (issues.length) return issues.failure()
 
   const refs = checks.map((c) => (c.type === "http" && !c.verifyTls ? { ...c, needs: ["skipTlsVerify" as const] } : c))
@@ -278,11 +271,12 @@ export function validateConfig(input: unknown, regions: readonly Region[]): Conf
 
 function readComponent(f: Fields): Component | null {
   const name = f.string("name", { required: true })
-  const critical = f.boolean("critical", false)
+  f.replaced("critical", "was replaced by priority.", 'Use "priority": "P1" for what was critical, or leave it out for P3.')
+  const priority = f.priority("priority")
   const target = f.has("target") ? f.percentage("target") : undefined
   const credits = readCredits(f)
   f.finish()
-  return name === undefined ? null : { name, critical, credits, ...(target !== undefined ? { target } : {}) }
+  return name === undefined ? null : { name, credits, ...(priority !== undefined ? { priority } : {}), ...(target !== undefined ? { target } : {}) }
 }
 
 function readCredits(f: Fields): CreditTier[] {
@@ -312,18 +306,18 @@ function readNotifier(f: Fields): NotifierConfig | null {
   const id = f.id()
   const type = f.oneOf("type", ["email", "sms", "webhook"] as const, { required: true })
   if (type === undefined) return null
-  const defaultLevels: readonly AlertLevel[] = type === "sms" ? ["critical"] : ["warn", "alert", "critical"]
-  const levels = f.stringList("levels", { allowed: ALERT_LEVELS }) ?? defaultLevels
+  f.replaced("levels", "was replaced by upTo.", 'Use "upTo": "P2" to send only P1 and P2, or leave it out for the default.')
+  const upTo = f.priority("upTo", { max: "P4", why: "P5 is recorded and never sent" }) ?? (type === "sms" ? "P2" : "P4")
   let result: NotifierConfig | null = null
   if (type === "webhook") {
     const secret = f.string("secret", { required: true, hint: "the name of the secret holding the webhook URL" })
-    if (id !== undefined && secret !== undefined) result = { id, type, levels, secret }
+    if (id !== undefined && secret !== undefined) result = { id, type, upTo, secret }
   } else {
     const pattern = type === "email" ? EMAIL : PHONE
     const what = type === "email" ? "an email address" : "a phone number in international format, such as +15555550100"
     const to = f.stringList("to", { required: true, pattern, what })
     if (to && !to.length) f.error("to", "empty", "add at least one recipient.")
-    if (id !== undefined && to?.length) result = { id, type, levels, to }
+    if (id !== undefined && to?.length) result = { id, type, upTo, to }
   }
   f.finish()
   return result
@@ -351,14 +345,23 @@ function readCheck(f: Fields): Check | null {
   const component = f.string("component", { required: true })
   const regions = f.stringList("regions")
   if (regions && !regions.length) f.error("regions", "empty", "add at least one region, or leave regions out to run in every region.")
-  const severity = f.oneOf("severity", ["normal", "critical"] as const) ?? "normal"
+  f.replaced("severity", "was replaced by priority.", 'Use "priority": "P1" for what was critical, or leave it out to use the component\'s priority.')
+  const priority = f.priority("priority")
+  const incidentKey = f.string("incidentKey", { hint: "checks with the same key share one incident" })
+  if (incidentKey !== undefined && !ID.test(incidentKey)) f.error("incidentKey", "invalid", `${show(incidentKey)} must use lowercase letters, digits, "-" and "_", starting with a letter or digit. It appears in incident ids.`)
   const isPublic = f.boolean("public", true)
   if (type === undefined) {
     f.finish({ skipUnknown: true })
     return null
   }
 
-  const base = { severity, public: isPublic, ...(regions?.length ? { regions: [...new Set(regions)] } : {}) }
+  // The component's priority is filled in once components are read.
+  const base = {
+    priority: priority ?? DEFAULT_PRIORITY,
+    public: isPublic,
+    ...(regions?.length ? { regions: [...new Set(regions)] } : {}),
+    ...(incidentKey !== undefined && ID.test(incidentKey) ? { incidentKey } : {}),
+  }
   let check: Check | null = null
   switch (type) {
     case "http":
@@ -403,10 +406,11 @@ function readCheck(f: Fields): Check | null {
   if (!check || id === undefined || component === undefined) return null
   check.id = id
   check.component = component
+  if (priority === undefined) inheritsPriority.add(check)
   return check
 }
 
-function readHttp(f: Fields, base: Pick<CheckBase, "severity" | "public" | "regions">): HttpCheck | null {
+function readHttp(f: Fields, base: Pick<CheckBase, "priority" | "public" | "regions" | "incidentKey">): HttpCheck | null {
   const url = f.url("url")
   const method = f.oneOf("method", METHODS, { transform: (s) => s.toUpperCase() }) ?? "GET"
   const headers = f.stringRecord("headers")
@@ -543,6 +547,26 @@ class Fields {
 
   private missing(key: string, hint?: string) {
     this.error(key, "required", hint ? `is required: ${hint}.` : "is required.")
+  }
+
+  /** A priority written "P1" to "P5" (any case) or 1 to 5. */
+  priority(key: string, opts: { max?: Priority; why?: string } = {}): Priority | undefined {
+    const value = this.raw(key)
+    if (value === undefined) return undefined
+    const text = typeof value === "number" ? `P${value}` : typeof value === "string" ? value.toUpperCase() : ""
+    const found = PRIORITIES.find((p) => p === text)
+    const max = opts.max ?? "P5"
+    if (!found || found > max) {
+      const allowed = PRIORITIES.filter((p) => p <= max)
+      this.error(key, "invalid", `must be one of ${allowed.join(", ")}, got ${show(value)}${found && opts.why ? ` (${opts.why})` : ""}.`)
+      return undefined
+    }
+    return found
+  }
+
+  /** Reports a field from an earlier config format, with what replaced it. */
+  replaced(key: string, message: string, fix: string) {
+    if (this.raw(key) !== undefined) this.error(key, "invalid", message, fix)
   }
 
   id(): string | undefined {

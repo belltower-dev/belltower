@@ -13,10 +13,12 @@ export interface Store {
   list(prefix: string): Promise<string[]>
 }
 
-export type AlertLevel = "info" | "warn" | "alert" | "critical"
+/** P1 is the most urgent. P5 is recorded and never sent. */
+export type Priority = "P1" | "P2" | "P3" | "P4" | "P5"
+export const PRIORITIES: readonly Priority[] = ["P1", "P2", "P3", "P4", "P5"]
 
 export interface Alert {
-  level: AlertLevel
+  priority: Priority
   /** One line, for subjects and SMS. */
   title: string
   /** Plain text. A notifier that sends HTML builds it from the same content. */
@@ -26,8 +28,8 @@ export interface Alert {
 }
 
 export interface Notifier {
-  /** Which levels this notifier sends; SMS notifiers usually take only "critical". */
-  levels: readonly AlertLevel[]
+  /** The lowest priority it sends: "P2" sends P1 and P2. */
+  upTo: Priority
   send(alert: Alert): Promise<void>
 }
 

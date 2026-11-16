@@ -3,7 +3,7 @@ import type { Check, Config, HeartbeatCheck, HttpCheck, Thresholds } from "./con
 import { rollUp } from "./availability.ts"
 import { heartbeatKey, judgeHeartbeat, type HeartbeatRecord } from "./heartbeat.ts"
 import { maintenanceWindows, NOTES_FORMAT, NOTES_KEY, type PublicNotes } from "./notes.ts"
-import type { Alert, AlertLevel, Clock, HttpTiming, Notifier, Store } from "./ports.ts"
+import type { Alert, Clock, HttpTiming, Notifier, Priority, Store } from "./ports.ts"
 
 /*
  * decide(): reads every region's recent results, applies the confirmation,
@@ -74,23 +74,39 @@ export interface FirstFailure {
   bodyStart?: string
 }
 
-export interface Incident {
-  format: typeof INCIDENT_FORMAT
-  id: string
-  check: string
+/** A span of time as ISO strings; `end` is absent while it's still going. */
+export interface OpenSpan {
+  start: string
+  end?: string
+}
+
+/** One check's part in an incident. */
+export interface IncidentCheck {
   component: string
-  level: AlertLevel
-  /** The first failing minute. */
-  startedAt: string
-  detectedAt: string
-  /** The first passing minute of the recovery. */
-  endedAt?: string
-  resolvedAt?: string
+  /** When the check was down. A check that recovers and fails again while the incident is open gets another span. */
+  spans: OpenSpan[]
   /** What happened, in words. */
   summary: string
   regions: string[]
   /** From the first failure in each region. */
   firstFailures: Record<string, FirstFailure>
+}
+
+export interface Incident {
+  format: typeof INCIDENT_FORMAT
+  id: string
+  /** The checks' shared incident key, or the check id. */
+  key: string
+  /** The most urgent priority among its checks. */
+  priority: Priority
+  components: string[]
+  checks: Record<string, IncidentCheck>
+  /** The first failing minute of any of its checks. */
+  startedAt: string
+  detectedAt: string
+  /** The end of its last check's span: the first passing minute of the recovery. */
+  endedAt?: string
+  resolvedAt?: string
 }
 
 export type ComponentState = "operational" | "degraded" | "maintenance" | "down"
@@ -101,12 +117,12 @@ export interface PublicStatus {
   writtenAt: string
   overall: ComponentState
   components: { name: string; state: ComponentState }[]
-  incidents: { id: string; component: string; startedAt: string }[]
+  incidents: { id: string; components: string[]; startedAt: string }[]
 }
 
 interface DecideState {
   format: typeof DECIDE_STATE_FORMAT
-  /** Check id to the id of its open incident. */
+  /** Incident key to the id of its open incident. */
   open: Record<string, string>
   /** When decide() first ran: availability isn't counted before it. */
   since?: string
@@ -160,61 +176,98 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
   const runners = new Map<string, string[]>()
   for (const [region, ids] of Object.entries(byRegion)) for (const id of ids) runners.set(id, [...(runners.get(id) ?? []), region])
 
-  const componentCritical = new Set(config.components.filter((c) => c.critical).map((c) => c.name))
-  const levelFor = (check: Check): AlertLevel =>
-    check.severity === "critical" || componentCritical.has(check.component) ? "critical" : "alert"
+  const open = new Map<string, Incident>()
+  for (const [key, id] of Object.entries(state.open)) {
+    const incident = await readJson<Incident>(store, incidentKey(id))
+    if (incident) open.set(key, incident)
+    else {
+      problems.push(`Incident "${id}" is missing from the store; its checks are judged afresh and no recovery alert is sent for it.`)
+      delete state.open[key]
+    }
+  }
+
+  /** What changed this minute, by incident key. */
+  const changes = new Map<string, { down: { check: Check; part: IncidentCheck }[]; up: { check: Check; end: Date }[] }>()
+  const changesFor = (key: string) => {
+    const c = changes.get(key) ?? { down: [], up: [] }
+    changes.set(key, c)
+    return c
+  }
 
   for (const check of config.checks) {
-    const openId = state.open[check.id]
-    let change: { opened: Incident } | { endedAt: Date } | null = null
-
+    const key = check.incidentKey ?? check.id
+    const spans = open.get(key)?.checks[check.id]?.spans
+    const wasDown = spans !== undefined && spans.at(-1)?.end === undefined
     const maintenanceNow = maintenanceEnd(check.component, now.getTime()) !== null
 
     if (check.type === "http") {
       const regions = runners.get(check.id) ?? []
       const samples = minutes.map((m) => sampleFor(files, regions, m, check.id))
-      const verdict = judge(samples, regions.length, t, openId !== undefined)
-      report.states[check.id] = maintenanceNow && openId === undefined ? "maintenance" : verdict.state
-      if (openId === undefined && !maintenanceNow && verdict.state === "down" && verdict.since !== null) {
+      const verdict = judge(samples, regions.length, t, wasDown)
+      report.states[check.id] = maintenanceNow && !wasDown ? "maintenance" : verdict.state
+      if (!wasDown && !maintenanceNow && verdict.state === "down" && verdict.since !== null) {
         // An outage that began in a maintenance window counts from the window's end.
         let from = verdict.since
         while (from < minutes.length && maintenanceEnd(check.component, minutes[from]?.getTime() ?? 0) !== null) from++
-        if (from < minutes.length) change = { opened: httpIncident(check, levelFor(check), samples.slice(from), minutes.slice(from), now) }
-      } else if (openId !== undefined && verdict.state !== "down" && verdict.since !== null) {
-        change = { endedAt: minutes[verdict.since] ?? now }
+        if (from < minutes.length) changesFor(key).down.push({ check, part: httpPart(check, samples.slice(from), minutes.slice(from), now) })
+      } else if (wasDown && verdict.state !== "down" && verdict.since !== null) {
+        changesFor(key).up.push({ check, end: minutes[verdict.since] ?? now })
       }
     } else if (check.type === "heartbeat") {
       const record = await readJson<HeartbeatRecord>(store, heartbeatKey(check.id))
       const verdict = judgeHeartbeat(check, record, now)
-      report.states[check.id] = maintenanceNow && openId === undefined ? "maintenance" : verdict.state
-      if (openId === undefined && !maintenanceNow && verdict.state === "down" && verdict.since) {
+      report.states[check.id] = maintenanceNow && !wasDown ? "maintenance" : verdict.state
+      if (!wasDown && !maintenanceNow && verdict.state === "down" && verdict.since) {
         const since = new Date(Math.max(verdict.since.getTime(), maintenanceEnd(check.component, verdict.since.getTime()) ?? 0))
-        change = { opened: heartbeatIncident(check, levelFor(check), since, verdict.reason ?? "", now) }
-      } else if (openId !== undefined && verdict.state === "up") {
-        change = { endedAt: new Date(record?.lastSuccess ?? now) }
+        changesFor(key).down.push({ check, part: heartbeatPart(check, since, verdict.reason ?? "") })
+      } else if (wasDown && verdict.state === "up") {
+        changesFor(key).up.push({ check, end: new Date(record?.lastSuccess ?? now) })
       }
-    } else {
+    }
+  }
+
+  for (const [key, change] of changes) {
+    const existing = open.get(key)
+    if (!existing) {
+      if (!change.down.length) continue
+      const incident = newIncident(key, change.down, now)
+      await store.put(incidentKey(incident.id), JSON.stringify(incident), { contentType: "application/json" })
+      await send(deps.notifiers, downAlert(incident, change.down.map((d) => d.check)), problems)
+      state.open[key] = incident.id
+      open.set(key, incident)
+      report.opened.push(incident)
       continue
     }
 
-    if (change && "opened" in change) {
-      const incident = change.opened
+    const incident = existing
+    const before = incident.priority
+    for (const { check, end } of change.up) {
+      const last = incident.checks[check.id]?.spans.at(-1)
+      if (last) last.end = end.toISOString()
+    }
+    for (const { check, part } of change.down) {
+      const known = incident.checks[check.id]
+      if (known) known.spans.push(...part.spans)
+      else incident.checks[check.id] = part
+      if (!incident.components.includes(check.component)) incident.components.push(check.component)
+      if (rank(check.priority) < rank(incident.priority)) incident.priority = check.priority
+    }
+
+    const ends = Object.values(incident.checks).flatMap((c) => c.spans.map((s) => s.end))
+    if (ends.every((e) => e !== undefined)) {
+      incident.endedAt = ends.reduce((a, b) => (a > b ? a : b))
+      incident.resolvedAt = now.toISOString()
       await store.put(incidentKey(incident.id), JSON.stringify(incident), { contentType: "application/json" })
-      await send(deps.notifiers, downAlert(incident, check), problems)
-      state.open[check.id] = incident.id
-      report.opened.push(incident)
-    } else if (change && openId !== undefined) {
-      const incident = await readJson<Incident>(store, incidentKey(openId))
-      if (incident) {
-        incident.endedAt = change.endedAt.toISOString()
-        incident.resolvedAt = now.toISOString()
-        await store.put(incidentKey(incident.id), JSON.stringify(incident), { contentType: "application/json" })
-        await send(deps.notifiers, recoveryAlert(incident, check), problems)
-        report.resolved.push(incident)
-      } else {
-        problems.push(`Incident "${openId}" for check "${check.id}" is missing from the store; marking the check recovered without an alert.`)
+      await send(deps.notifiers, recoveryAlert(incident), problems)
+      delete state.open[key]
+      open.delete(key)
+      report.resolved.push(incident)
+    } else {
+      await store.put(incidentKey(incident.id), JSON.stringify(incident), { contentType: "application/json" })
+      // A check joining an open incident alerts only when it makes the incident more urgent.
+      if (rank(incident.priority) < rank(before)) {
+        await send(deps.notifiers, downAlert(incident, change.down.map((d) => d.check)), problems)
       }
-      delete state.open[check.id]
     }
   }
 
@@ -226,9 +279,8 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
   }
 
   await store.put(DECIDE_STATE_KEY, JSON.stringify(state), { contentType: "application/json" })
-  const openIncidents = await Promise.all(Object.values(state.open).map((id) => readJson<Incident>(store, incidentKey(id))))
   const maintenance = new Set(config.components.map((c) => c.name).filter((name) => maintenanceEnd(name, now.getTime()) !== null))
-  await store.put(STATUS_KEY, JSON.stringify(publicStatus(config, report.states, openIncidents, now, maintenance)), { contentType: "application/json" })
+  await store.put(STATUS_KEY, JSON.stringify(publicStatus(config, report.states, [...open.values()], now, maintenance)), { contentType: "application/json" })
   return report
 }
 
@@ -302,26 +354,31 @@ export function incidentKey(id: string): string {
   return `incidents/${id}.json`
 }
 
-function incidentId(checkId: string, start: Date): string {
-  return `${checkId}-${start.toISOString().slice(0, 16).replace(/[-T:]/g, "")}`
+function incidentId(key: string, start: Date): string {
+  return `${key}-${start.toISOString().slice(0, 16).replace(/[-T:]/g, "")}`
 }
 
-function heartbeatIncident(check: HeartbeatCheck, level: AlertLevel, since: Date, summary: string, now: Date): Incident {
+const rank = (p: Priority) => Number(p.slice(1))
+
+function newIncident(key: string, down: readonly { check: Check; part: IncidentCheck }[], now: Date): Incident {
+  const startedAt = down.map((d) => d.part.spans[0]?.start ?? now.toISOString()).reduce((a, b) => (a < b ? a : b))
   return {
     format: INCIDENT_FORMAT,
-    id: incidentId(check.id, since),
-    check: check.id,
-    component: check.component,
-    level,
-    startedAt: since.toISOString(),
+    id: incidentId(key, new Date(startedAt)),
+    key,
+    priority: down.map((d) => d.check.priority).reduce((a, b) => (rank(a) <= rank(b) ? a : b)),
+    components: [...new Set(down.map((d) => d.check.component))],
+    checks: Object.fromEntries(down.map((d) => [d.check.id, d.part])),
+    startedAt,
     detectedAt: now.toISOString(),
-    summary,
-    regions: [],
-    firstFailures: {},
   }
 }
 
-function httpIncident(check: HttpCheck, level: AlertLevel, samples: readonly Sample[], minutes: readonly Date[], now: Date): Incident {
+function heartbeatPart(check: HeartbeatCheck, since: Date, summary: string): IncidentCheck {
+  return { component: check.component, spans: [{ start: since.toISOString() }], summary, regions: [], firstFailures: {} }
+}
+
+function httpPart(check: HttpCheck, samples: readonly Sample[], minutes: readonly Date[], now: Date): IncidentCheck {
   const start = minutes[0] ?? now
   const firstFailures: Record<string, FirstFailure> = {}
   samples.forEach((sample, i) => {
@@ -341,13 +398,8 @@ function httpIncident(check: HttpCheck, level: AlertLevel, samples: readonly Sam
   const regions = Object.keys(firstFailures).sort()
   const reasons = [...new Set(Object.values(firstFailures).map((f) => f.message).filter((m) => m !== undefined))]
   return {
-    format: INCIDENT_FORMAT,
-    id: incidentId(check.id, start),
-    check: check.id,
     component: check.component,
-    level,
-    startedAt: start.toISOString(),
-    detectedAt: now.toISOString(),
+    spans: [{ start: start.toISOString() }],
     summary: [`${check.id} has failed in ${regions.join(", ")} since ${hhmm(start.toISOString())}.`, ...reasons].join("\n"),
     regions,
     firstFailures,
@@ -358,29 +410,42 @@ function hhmm(iso: string): string {
   return `${iso.slice(11, 16)} UTC`
 }
 
-function downAlert(incident: Incident, check: Check): Alert {
+/** "home (Website)", or "api, web (API, Website)" for several checks. */
+function naming(checks: readonly string[], components: readonly string[]): string {
+  return `${checks.join(", ")} (${components.join(", ")})`
+}
+
+/** The alert for checks that went down, opening an incident or joining one. */
+function downAlert(incident: Incident, down: readonly Check[]): Alert {
+  const components = [...new Set(down.map((c) => c.component))]
   return {
-    level: incident.level,
-    title: `Down: ${check.id} (${check.component})`,
-    text: [incident.summary, ...(check.type === "http" ? [`URL: ${check.url}`] : []), "Belltower will send another alert when it recovers."].join("\n"),
+    priority: incident.priority,
+    title: `${incident.priority} down: ${naming(down.map((c) => c.id), components)}`,
+    text: [
+      ...down.map((c) => incident.checks[c.id]?.summary ?? ""),
+      ...down.flatMap((c) => (c.type === "http" ? [`URL: ${c.url}`] : [])),
+      ...(Object.keys(incident.checks).length > down.length ? [`Part of incident ${incident.id}, with ${Object.keys(incident.checks).filter((id) => !down.some((c) => c.id === id)).join(", ")}.`] : []),
+      "Belltower will send another alert when it recovers.",
+    ].join("\n"),
   }
 }
 
-function recoveryAlert(incident: Incident, check: Check): Alert {
+function recoveryAlert(incident: Incident): Alert {
   const end = incident.endedAt ?? incident.resolvedAt ?? incident.startedAt
   const minutes = Math.max(1, Math.round((Date.parse(end) - Date.parse(incident.startedAt)) / MINUTE))
+  const checks = Object.keys(incident.checks)
   return {
-    level: incident.level,
-    title: `Recovered: ${check.id} (${check.component})`,
-    text: `${check.id} is passing again. It was down for ${minutes} minute${minutes === 1 ? "" : "s"}, from ${hhmm(incident.startedAt)} to ${hhmm(end)}.`,
+    priority: incident.priority,
+    title: `${incident.priority} recovered: ${naming(checks, incident.components)}`,
+    text: `${checks.join(", ")} ${checks.length === 1 ? "is" : "are"} passing again. It was down for ${minutes} minute${minutes === 1 ? "" : "s"}, from ${hhmm(incident.startedAt)} to ${hhmm(end)}.`,
   }
 }
 
-/** Sends through every notifier that takes the level. One failing never stops the others. */
+/** Sends through every notifier whose upTo covers the priority. P5 is never sent. One failing never stops the others. */
 async function send(notifiers: readonly Notifier[], alert: Alert, problems: string[]): Promise<void> {
   await Promise.all(
     notifiers
-      .filter((n) => n.levels.includes(alert.level))
+      .filter((n) => alert.priority !== "P5" && rank(alert.priority) <= rank(n.upTo))
       .map(async (n, i) => {
         try {
           await n.send(alert)
@@ -396,7 +461,7 @@ const RANK: Record<ComponentState, number> = { operational: 0, maintenance: 1, d
 export function publicStatus(
   config: Config,
   states: Readonly<Record<string, CheckState>>,
-  open: readonly (Incident | null)[],
+  open: readonly Incident[],
   now: Date,
   maintenance: ReadonlySet<string> = new Set(),
 ): PublicStatus {
@@ -419,8 +484,9 @@ export function publicStatus(
     writtenAt: now.toISOString(),
     overall,
     components,
-    incidents: open
-      .filter((i): i is Incident => i !== null && publicChecks.has(i.check))
-      .map((i) => ({ id: i.id, component: i.component, startedAt: i.startedAt })),
+    incidents: open.flatMap((i) => {
+      const shown = Object.entries(i.checks).filter(([id]) => publicChecks.has(id))
+      return shown.length ? [{ id: i.id, components: [...new Set(shown.map(([, c]) => c.component))], startedAt: i.startedAt }] : []
+    }),
   }
 }

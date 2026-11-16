@@ -26,10 +26,10 @@
       "description": "Open incidents on public checks.",
       "items": {
         "type": "object",
-        "required": ["id", "component", "startedAt"],
+        "required": ["id", "components", "startedAt"],
         "properties": {
           "id": { "type": "string" },
-          "component": { "type": "string" },
+          "components": { "type": "array", "items": { "type": "string" }, "description": "Components with a public check in the incident." },
           "startedAt": { "type": "string", "format": "date-time" }
         },
         "additionalProperties": false

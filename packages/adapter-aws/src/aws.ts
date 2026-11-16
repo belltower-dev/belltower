@@ -89,7 +89,7 @@ export function ssmSecrets(ctx: AwsContext, env: NodeJS.ProcessEnv, prefix: stri
 /** Sends alert email through SES. The sender must be a verified SES identity. */
 export function sesNotifier(config: Extract<NotifierConfig, { type: "email" }>, ctx: AwsContext, from: string): Notifier {
   return {
-    levels: config.levels,
+    upTo: config.upTo,
     async send(alert) {
       try {
         await awsCall(ctx, "ses", `email.${ctx.region}.amazonaws.com`, {
@@ -117,7 +117,7 @@ export function sesNotifier(config: Extract<NotifierConfig, { type: "email" }>, 
 /** Sends alerts by SMS through SNS, one message per number, as transactional messages. */
 export function snsNotifier(config: Extract<NotifierConfig, { type: "sms" }>, ctx: AwsContext): Notifier {
   return {
-    levels: config.levels,
+    upTo: config.upTo,
     async send(alert) {
       // An SMS is short, so it carries the title and the first line of the text.
       const message = `${alert.title}\n${alert.text.split("\n")[0] ?? ""}`.slice(0, 600)
