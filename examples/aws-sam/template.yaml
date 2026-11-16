@@ -23,6 +23,14 @@ Parameters:
     Type: String
     Default: ""
     Description: Where the status page is served, such as https://status.example.com/. When set, decide() rebuilds the page in the bucket's public/ folder.
+  PageDomains:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: Domains that serve the status page through CloudFront, such as status.example.com. Each needs a CNAME to the PageDistributionDomain output.
+  PageCertificateArn:
+    Type: String
+    Default: ""
+    Description: An ACM certificate in us-east-1 covering every name in PageDomains. Leave empty to host the page elsewhere.
   SsmPath:
     Type: String
     Default: belltower
@@ -30,6 +38,9 @@ Parameters:
 
 Conditions:
   IsPrimary: !Equals [!Ref "AWS::Region", !Ref PrimaryRegion]
+  HostsPage: !And
+    - !Condition IsPrimary
+    - !Not [!Equals [!Ref PageCertificateArn, ""]]
 
 Globals:
   Function:
@@ -166,6 +177,80 @@ Resources:
         Banner:
           - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
 
+  # Optional: CloudFront serves the bucket's public/ folder (the page, status.json and the feeds) over HTTPS.
+  PageOriginAccess:
+    Type: AWS::CloudFront::OriginAccessControl
+    Condition: HostsPage
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-page"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  PageCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Condition: HostsPage
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${AWS::StackName}-page"
+        Comment: status.json changes every minute, so nothing is cached for long.
+        MinTTL: 0
+        DefaultTTL: 60
+        MaxTTL: 300
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          CookiesConfig: { CookieBehavior: none }
+          HeadersConfig: { HeaderBehavior: none }
+          QueryStringsConfig: { QueryStringBehavior: none }
+
+  PageDistribution:
+    Type: AWS::CloudFront::Distribution
+    Condition: HostsPage
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: Belltower status page
+        Aliases: !Ref PageDomains
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: page
+            DomainName: !GetAtt DataBucket.RegionalDomainName
+            OriginPath: /public
+            OriginAccessControlId: !GetAtt PageOriginAccess.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: page
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: !Ref PageCachePolicy
+          # The managed CORS policy, so status.json and the feeds can be read from other sites.
+          ResponseHeadersPolicyId: 60669652-455b-4ae9-85a4-c4c02393f86c
+        ViewerCertificate:
+          AcmCertificateArn: !Ref PageCertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+
+  PageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: HostsPage
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Statement:
+          # Only the distribution can read, and only public/: results, incidents and state stay private.
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${BucketName}/public/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${PageDistribution}"
+
 Outputs:
   HeartbeatBaseUrl:
     Condition: IsPrimary
@@ -174,3 +259,7 @@ Outputs:
   Bucket:
     Description: Where results, incidents and public/status.json are kept.
     Value: !Ref BucketName
+  PageDistributionDomain:
+    Condition: HostsPage
+    Description: Point a CNAME for each name in PageDomains here.
+    Value: !GetAtt PageDistribution.DomainName

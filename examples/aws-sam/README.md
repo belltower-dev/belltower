@@ -81,7 +81,12 @@ To publish the status page, add `SiteUrl=https://status.example.com/` to
 the primary region's parameters. `decide()` then rebuilds the page into the
 bucket's `public/` folder, beside `status.json`, whenever an incident opens
 or resolves and at least every 10 minutes. Serve that folder from any
-static host. A theme in the config must be inline or a URL here, since the
+static host, or let the stack do it: request an ACM certificate in
+`us-east-1` for your page's domains, then add
+`PageDomains=status.example.com PageCertificateArn=<its ARN>` to the
+primary region's parameters. CloudFront then serves `public/` over HTTPS,
+and only `public/` is readable; results, incidents and state stay private.
+Point a CNAME for each domain at the `PageDistributionDomain` output. A theme in the config must be inline or a URL here, since the
 Lambda can't read files from your repository.
 
 ## Check it's working
