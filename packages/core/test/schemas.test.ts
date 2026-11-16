@@ -83,12 +83,11 @@ describe("published schemas", () => {
         page: {
           name: "Example",
           link: "https://example.com/",
-          logo: { src: "logo.svg", alt: "Example" },
+          logo: { src: "logo.svg", alt: "Example", wordmark: true },
           logoDark: { src: "logo-dark.svg", alt: "Example" },
           favicon: "favicon.svg",
           theme: { name: "example", type: "registry:theme", cssVars: { light: { background: "#ffffff" }, dark: { background: "#000000" } } },
           states: { operational: { light: "#15803d", dark: "#4ade80" } },
-          mode: "dark",
           footer: { text: "Example Ltd", links: [{ text: "Privacy", url: "https://example.com/privacy" }] },
           poweredBy: false,
           reportProblem: "mailto:support@example.com",

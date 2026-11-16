@@ -108,6 +108,9 @@ export interface DayFigure {
   maintenanceMinutes: number
   /** Minutes the component was degraded. They don't count against uptime. */
   degradedMinutes: number
+  /** Minutes the component was in a partial or a major outage, from its state each minute. */
+  partialMinutes: number
+  majorMinutes: number
   /** Median response time of its public HTTP checks, or null with none recorded. */
   responseMs: number | null
   /** Ids of public incidents that overlap the day. */
@@ -189,6 +192,8 @@ export function buildHistory(
           downMinutes: f.downMinutes,
           maintenanceMinutes: f.maintenanceMinutes,
           degradedMinutes: response.days.get(date)?.degradedMinutes ?? 0,
+          partialMinutes: response.days.get(date)?.partialMinutes ?? 0,
+          majorMinutes: response.days.get(date)?.majorMinutes ?? 0,
           responseMs: response.days.get(date)?.responseMs ?? null,
           incidents: s.incidents
             .filter((inc) => Date.parse(inc.startedAt) < start + DAY && (inc.endedAt ? Date.parse(inc.endedAt) : now.getTime()) > start)

@@ -10,7 +10,7 @@
     "writtenAt": { "type": "string", "format": "date-time" },
     "page": {
       "type": "object",
-      "required": ["name", "mode", "poweredBy"],
+      "required": ["name", "poweredBy"],
       "properties": {
         "name": { "type": "string" },
         "link": { "type": "string" },
@@ -30,7 +30,6 @@
           },
           "additionalProperties": false
         },
-        "mode": { "enum": ["system", "light", "dark"] },
         "footer": {
           "type": "object",
           "required": ["links"],
@@ -75,7 +74,11 @@
     "image": {
       "type": "object",
       "required": ["src", "alt"],
-      "properties": { "src": { "type": "string" }, "alt": { "type": "string" } },
+      "properties": {
+        "src": { "type": "string" },
+        "alt": { "type": "string" },
+        "wordmark": { "type": "boolean", "description": "The image spells out the name, so the header shows no name text beside it." }
+      },
       "additionalProperties": false
     },
     "color": {

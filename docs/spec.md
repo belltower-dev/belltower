@@ -436,17 +436,38 @@ of the last build; with it, the status page refreshes from
 The first view is short: a visitor picks what they use, and details come
 after a click. No bars appear until a group is opened.
 
+One layout adapts to the screen. On phones the headline is left-aligned
+and the navigation is a row of tabs under the name. From tablet width
+the navigation sits in the header row, and the Status page's headline is
+centered with its icon above it. On wide screens the page grows to a
+wider grid with group cards in three columns, while running text keeps a
+readable line length.
+
 | Page | Shows |
 | --- | --- |
-| Status | The overall state as a headline with its state icon ("All services are online", or the situation in a sentence) and "Last updated"; a pill counting components that are operational ("13 of 13 components operational"); a "Checked from" control; current notices, open incidents and maintenance in progress; then a card per component group with its description and its state in words; then one line of recent incidents with a link to Previous incidents |
-| One per group | The group's state, then its components as a bordered list, each with its state in words. A component row expands to its description, 90-day bars, response time, and this month's availability against the target with the downtime budget. Then a legend, and the group's incidents for the last 15 days, by day |
+| Status | The overall state as a short headline with its state icon (see "The headline") and "Last updated"; when anything is affected, a plain list under it of each affected service and its state in words ("REST API: Partial outage"), each linking to its group; current notices, open incidents and maintenance in progress; then a card per component group with its state in words, with an "All components" link beside the heading, or the components themselves when there's only one group; one line of recent incidents with a link to Previous incidents; and last, a quiet "Checked from" line |
+| One per group | The group's state, then its components as a bordered list, each with its state in words. A component row expands to its description, 90-day bars, response time, and this month's availability against the target with the downtime budget. Then a legend, and the group's incidents in the last 15 days as one list, newest first: each with its date, title, stage, components, duration and impact. Days without one aren't listed |
+| All components | Every component of every group on one page, under its group's name, each a row that opens like on a group page; the legend |
 | Maintenance | Maintenance in progress and upcoming |
-| Previous incidents | The last 90 days, newest first, under a heading for each month; each day with incidents has a row with its date and count; each incident shows its stage, its latest update with stage and time, and "N previous updates" folded beneath. A month with nothing says so. Then an event log: every update of every incident and maintenance in one list, newest first, with a link at the top of the page that goes straight to it |
-| One per incident | A permanent address: title, stage, impact, duration, components affected, and every update with its stage and time |
+| Previous incidents | The last 90 days, newest first, as one card per month. Inside it, each day with incidents has a shaded row with its date and count; each incident shows its stage, its components, impact and duration, and its latest update as a card on a timeline, with "N previous updates" folded beneath. A month with nothing says so. Then an event log: every update of every incident and maintenance in one list, newest first, with a link at the top of the page that goes straight to it |
+| One per incident | A permanent address, with a link back to Previous incidents, and one card: the stage and impact, the title, the start, the duration and the summary; then the affected services with their states; then every update, newest first, as a card on a timeline marked by its stage. Maintenance has the same page, linked back to Maintenance |
 
 Plus `feed.atom`, `feed.rss` and `feed.json` (JSON Feed) of incidents and
 maintenance, `summary.json`, and a Markdown copy of each page (see
 "Machine-readable status").
+
+### The headline
+
+The headline is one short sentence, by the worst problem, and never a list
+of names: the affected services are listed right under it.
+
+- Nothing affected: "All services are online".
+- One service affected: "One service is down" (or "is slow").
+- More: "Some services are down" (or "are slow").
+- Only maintenance: "Maintenance in progress".
+- A deployment with one component uses its name: "Website is down".
+
+A group's page follows the same rule for its own components.
 
 ### States
 
@@ -469,16 +490,21 @@ Degraded performance, Maintenance, Operational.
 ### Components
 
 - Grouped by `group`, in config order. Each group is a card on the Status
-  page and has its own page. Components without a group share one.
-- On its group's page, each component is a row with its name (a link when
-  `link` is set) and its state. The row is a button with `aria-expanded`
-  that opens its `description`, its 90-day bars and the rest below.
-- **90-day bars,** one per day. Days before monitoring began show as "No
-  data", and the legend includes it. Each bar has a text label (date, uptime
-  percentage, time degraded, incidents), such as "14 November: 99.9% up, 6
-  hours degraded, 1 incident", and the same figures are in a table. A day
-  that was degraded but never down shows as degraded, in words as well as
-  color. Under the bars, this month's availability next to the target.
+  page and has its own page. Components without a group share one. With
+  only one group, the Status page lists its components directly, since a
+  single card would only send visitors to a page that repeats it.
+- Each component is a row with its name and its state. The row is a
+  disclosure (`<details>`) that opens its `description`, a link to it
+  when `link` is set ("Open {name}"), its 90-day bars and the rest below.
+- **90-day bars,** one per day, in the color of the day's worst state:
+  Major outage, Partial outage, Degraded performance, then Maintenance, as
+  for the overall state. `decide()` counts the minutes each component
+  spent in each state, so a day's bar matches the states shown for it.
+  Days before monitoring began show as "No data", and the legend lists all
+  six. Each bar has a text label (date, state, uptime, time in each state,
+  incidents), such as "14 November: Partial outage, 99.9% up, 40 minutes
+  partial outage, 1 incident", and the same figures are in a table. Under
+  the bars, this month's availability next to the target.
 - **Response time:** a chart of the last 24 hours and the last 90 days,
   with the same figures in a table. `decide()` keeps the figures as it
   goes: hourly and daily medians of the passing public HTTP checks'
@@ -513,12 +539,15 @@ Degraded performance, Maintenance, Operational.
 
 ### Checked from
 
-A section on the Status page lists the regions checks run from, each with
+A quiet line at the end of the Status page ("Checked from 3 regions, all
+writing results") opens to the regions checks run from, each with
 whether it's writing results: "Writing results" when its last results
 file is under five minutes old, otherwise "No results since {time}".
 Visitors see where checks run, and a stalled region is visible to
-everyone, the deployment included. `decide()` records each region's last
-results time in `public/status.json`.
+everyone, the deployment included, without drawing attention away from
+the services themselves: it's about Belltower, not about what visitors
+use. `decide()` records each region's last results time in
+`public/status.json`.
 
 ### Times
 
@@ -527,9 +556,11 @@ Every time is shown in the viewer's time zone with UTC alongside, such as
 
 ### Light and dark
 
-System, light and dark, following the viewer's setting unless they choose
-one; the page's `mode` sets the default. The choice is a native control
-and is remembered on that device.
+Every theme has a light and a dark mode, and both pass the contrast
+check. The page starts on System, following the viewer's own setting; a
+native control in the footer offers System, Light and Dark, and a choice
+of Light or Dark is remembered on that device. Deployments can't change
+the default.
 
 ### Branding
 
@@ -542,12 +573,11 @@ From the config's `page` section:
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `name`, `link` | The deployment's name and home page. With `link`, the header also shows a visible "Go to {name}" link. `name` is required when `page` is set | `Status` |
-| `logo`, `logoDark` | `{ "src", "alt" }`: an image address (SVG preferred) and its required alt text | the name in text |
+| `name`, `link` | The deployment's name and home page. With `link`, the logo and name in the header link there (named "Go to {name}" for screen readers); without it they link to the Status page, which the Status tab also reaches. `name` is required when `page` is set | `Status` |
+| `logo`, `logoDark` | `{ "src", "alt" }`: an image address (SVG preferred) and its required alt text. The header shows the logo, then the name in text. A logo that already spells out the name sets `"wordmark": true` on `logo`: the name text is then left out, and screen readers still hear the name from the header link's label ("Go to {name}", or "{name} status, home") | the name in text |
 | `favicon` | Image address | none |
 | `theme` | A theme in the shadcn/ui registry format: a file path, a URL fetched at build, or the same object inline. Its light and dark variables (`background`, `foreground`, `card`, `primary`, `secondary`, `muted`, `accent`, `destructive`, `border`, `input`, `ring`, `chart-1` to `chart-5`, `radius`) and fonts (`font-sans`, `font-mono`, `font-serif`) style the page | Belltower's neutral theme |
 | `states` | Colors for the six day and state marks (`operational`, `degraded`, `partial`, `major`, `maintenance`, `nodata`), each with a light and a dark value, for a deployment that already has its own status colors | Belltower's state colors, with the theme's `destructive` for Major outage |
-| `mode` | `system`, `light` or `dark` | `system` |
 | `footer` | `{ "text", "links": [{ "text", "url" }] }` | none |
 | `poweredBy` | Show "Powered by Belltower" | `true` |
 | `reportProblem` | An http, https or mailto address for a "Report a problem" link | none |
@@ -565,6 +595,10 @@ From the config's `page` section:
   controls and the focus indicator 3:1, and the primary button's text on
   its fill. A failing pair stops the build with the two colors, the ratio,
   and the nearest value that passes.
+- **Styles and icons:** the page has its own small stylesheet in the
+  shadcn/ui look, which reads only the theme's variables and the state
+  colors, with no CSS framework. Icons are Lucide, the set shadcn/ui uses,
+  inlined as SVG at build; each sits beside words that say the same thing.
 - **No custom CSS or scripts.** A theme is variables, which the build can
   check; rules and scripts are where branding breaks accessibility.
 - The page is served from the deployment's own domain; the docs show the
@@ -593,10 +627,11 @@ From the config's `page` section:
 - `status.json`, `history.json` and the feeds sit beside it. All are
   readable from other sites (CORS allowed) and cached briefly.
 - **Markdown copies.** Each page has a copy at the same address with `.md`
-  added (`index.md`, `incidents.md`, `{group}.md`, `incidents/{id}.md`),
+  added (`index.md`, `components.md`, `incidents.md`, `{group}.md`, `incidents/{id}.md`),
   linked from the page with `<link rel="alternate" type="text/markdown">`.
-  The bars become a line of symbols with a legend in words (`+` Operational, `~` Degraded,
-  `x` Outage, `=` Maintenance, `.` No data). Agents and scripts read them
+  The bars become a line of symbols with a legend in words (`+`
+  Operational, `~` Degraded performance, `/` Partial outage, `x` Major
+  outage, `=` Maintenance, `.` No data). Agents and scripts read them
   without parsing HTML, and static hosts serve them as plain files.
 - `llms.txt` lists the pages, their Markdown copies, the JSON files and the
   feeds, each with one line on what it holds.

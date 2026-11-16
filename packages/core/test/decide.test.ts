@@ -306,7 +306,7 @@ describe("decide", () => {
     expect(page).toEqual({
       format: "belltower.page/1",
       writtenAt: "2026-11-15T10:01:30.000Z",
-      page: { name: "Status", mode: "system", poweredBy: true },
+      page: { name: "Status", poweredBy: true },
       components: [{ name: "Website" }, { name: "API" }],
     })
   })

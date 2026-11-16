@@ -296,9 +296,9 @@ describe("validateConfig", () => {
 })
 
 describe("the page section", () => {
-  it("defaults to a page named Status in the system mode", () => {
+  it("defaults to a page named Status", () => {
     const result = validateConfig(base(), regions)
-    expect(result.ok && result.config.page).toEqual({ name: "Status", mode: "system", poweredBy: true })
+    expect(result.ok && result.config.page).toEqual({ name: "Status", poweredBy: true })
   })
 
   it("reads components' group, description and link", () => {
@@ -327,7 +327,7 @@ describe("the page section", () => {
       "page.theme: is an object without cssVars. Use a theme in the shadcn/ui registry format, with cssVars.light and cssVars.dark, or give its file path or URL.",
       'page.states.operational.light: must be a CSS color such as #15803d or oklch(0.6 0.15 150), got "green-ish".',
       "page.states.outage: isn't a known field.",
-      'page.mode: must be one of system, light, dark, got "dim".',
+      "page.mode: was removed: the page always starts on the viewer's system setting, and viewers can choose light or dark. Remove page.mode.",
       'page.footer.links[0]: must be { "text": <words saying where it goes>, "url": <http, https or mailto address> }, got {"text":"Privacy","url":"javascript:alert(1)"}.',
       'page.reportProblem: must be an http, https or mailto address, got "support".',
     ])

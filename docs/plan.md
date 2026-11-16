@@ -81,14 +81,23 @@ real AWS deployment of `examples/aws-sam`.
   notes; each region's last results time in `status.json`; response-time
   medians and degraded minutes per day in `history.json`; `summary.json`
   and the Atom, RSS and JSON feeds, built from the public files. Tested.
+- `buildPage()`: the static status page in the hub layout, reviewed as a
+  preview. Plain CSS in the shadcn/ui look on the theme's own variables,
+  Lucide icons inlined, the contrast check in both modes before anything
+  is written, one layout for phones and wide screens, Markdown copies,
+  `llms.txt`, and `belltower page build`. Per-day minutes in partial and
+  major outage color the 90-day bars. Tested.
 
 **Next, in order:**
 
 1. Deploy `examples/aws-sam` to three regions and run phase 1's remaining
    done-when checks.
-2. `buildPage()`, following the spec's "Status page", including themes in
-   the shadcn/ui format with the contrast check at build. Shared for review
-   before it's committed.
+2. Rebuild the page after `decide()` when something changed: the AWS
+   and container adapters run `buildPage()` and `writePage()` so the page
+   beside `status.json` stays current without a separate job.
+3. Fonts a theme names are fetched once at build and served from the
+   page's own host (the spec's "Branding"); until then the page lists them
+   first in its font stacks.
 
 Phase 1's done-when checks are below.
 

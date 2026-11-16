@@ -2,8 +2,8 @@
  * Response times and degraded minutes (docs/spec.md, "Components"), kept by
  * decide() as it goes so the page never reads raw results. Each minute adds
  * the public HTTP checks' passing response times to a histogram per
- * component for the hour and the day, and counts the minute as degraded
- * when the component was. Histogram buckets are 2% wide, so a median is
+ * component for the hour and the day, and counts the minute as degraded,
+ * a partial outage or a major outage when the component was. Histogram buckets are 2% wide, so a median is
  * within 1% of the exact value, and the file stays small however many
  * checks and regions there are.
  */
@@ -25,7 +25,12 @@ interface DayMetrics {
   response?: Histogram
   medianMs?: number | null
   degradedMinutes: number
+  partialMinutes?: number
+  majorMinutes?: number
 }
+
+/** The states counted per day. */
+export type CountedState = "degraded" | "partial" | "major"
 
 export interface Metrics {
   format: typeof METRICS_FORMAT
@@ -58,19 +63,22 @@ export function median(h: Histogram | undefined): number | null {
 
 /**
  * Adds one minute. `responses` holds each component's response times in
- * that minute; `degraded` the components that were degraded. Returns the
- * metrics unchanged when the minute is already recorded.
+ * that minute; `states` the components that were degraded or in an outage.
+ * Returns the metrics unchanged when the minute is already recorded.
  */
-export function recordMinute(metrics: Metrics, minute: Date, responses: ReadonlyMap<string, readonly number[]>, degraded: ReadonlySet<string>): Metrics {
+export function recordMinute(metrics: Metrics, minute: Date, responses: ReadonlyMap<string, readonly number[]>, states: ReadonlyMap<string, CountedState>): Metrics {
   const iso = minute.toISOString()
   if (metrics.lastMinute && iso <= metrics.lastMinute) return metrics
   const day = iso.slice(0, 10)
   const hour = iso.slice(0, 13)
-  const names = new Set([...responses.keys(), ...degraded])
+  const names = new Set([...responses.keys(), ...states.keys()])
   for (const name of names) {
     const c = (metrics.components[name] ??= { hours: {}, days: {} })
     const d = (c.days[day] ??= { degradedMinutes: 0 })
-    if (degraded.has(name)) d.degradedMinutes++
+    const state = states.get(name)
+    if (state === "degraded") d.degradedMinutes++
+    else if (state === "partial") d.partialMinutes = (d.partialMinutes ?? 0) + 1
+    else if (state === "major") d.majorMinutes = (d.majorMinutes ?? 0) + 1
     for (const ms of responses.get(name) ?? []) {
       const b = String(bucket(ms))
       const h = (c.hours[hour] ??= {})
@@ -104,7 +112,7 @@ export interface ResponseFigures {
   /** The last 24 whole hours, oldest first, each as yyyy-mm-ddThh:00Z. */
   hours: { hour: string; responseMs: number | null }[]
   /** By UTC date. */
-  days: Map<string, { responseMs: number | null; degradedMinutes: number }>
+  days: Map<string, { responseMs: number | null; degradedMinutes: number; partialMinutes: number; majorMinutes: number }>
 }
 
 /** A component's figures as the page shows them. */
@@ -115,6 +123,6 @@ export function responseFigures(metrics: Metrics | null, component: string, now:
     const key = new Date(thisHour - (24 - i) * 3_600_000).toISOString().slice(0, 13)
     return { hour: `${key}:00Z`, responseMs: median(c?.hours[key]) }
   })
-  const days = new Map(Object.entries(c?.days ?? {}).map(([date, d]) => [date, { responseMs: d.response ? median(d.response) : (d.medianMs ?? null), degradedMinutes: d.degradedMinutes }]))
+  const days = new Map(Object.entries(c?.days ?? {}).map(([date, d]) => [date, { responseMs: d.response ? median(d.response) : (d.medianMs ?? null), degradedMinutes: d.degradedMinutes, partialMinutes: d.partialMinutes ?? 0, majorMinutes: d.majorMinutes ?? 0 }]))
   return { hours, days }
 }

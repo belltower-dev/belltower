@@ -310,7 +310,7 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
     await readMetrics(store, problems),
     new Date(last),
     responses,
-    new Set(current.components.filter((c) => c.state === "degraded").map((c) => c.name)),
+    new Map(current.components.flatMap((c) => (c.state === "degraded" || c.state === "partial" || c.state === "major" ? [[c.name, c.state] as const] : []))),
   )
   await store.put(METRICS_KEY, JSON.stringify(metrics), { contentType: "application/json" })
 

@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs"
-import { readdir, readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import { dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 import {
   buildNotes,
+  buildPage,
+  writePage,
   NOTES_KEY,
   decide,
   handle,
@@ -39,6 +41,7 @@ Commands:
   run checks --region <name>  Run one region's checks once and write its results file
   run decide                  Judge recent results, open and resolve incidents, send alerts
   notes push [--dir <dir>]    Check the incident and maintenance notes and publish them
+  page build --site-url <url> Build the static status page from the public files
   serve                       Answer heartbeat pings over HTTP
   serve --schedule            Also run every region's checks and decide each minute (one machine)
 
@@ -52,7 +55,11 @@ Options:
                     Default: $BELLTOWER_STORE, or ./belltower-data
   --port <n>        serve: the port. Default: $PORT, or 8080
   --dir <dir>       notes push: the folder of .md notes. Default: notes
-  --dry-run         run, notes push: do the work, but write nothing and send no alerts
+  --site-url <url>  page build: where the page is served, for feed links.
+                    Default: $BELLTOWER_SITE_URL
+  --out <dir>       page build: write the page to this folder instead of
+                    the store's public/ folder, beside status.json
+  --dry-run         run, notes push, page build: do the work, but write nothing and send no alerts
   --json            Print JSON (format ${CLI_FORMAT})
   --help            Show this help
 
@@ -76,6 +83,8 @@ const OPTIONS = {
   region: { type: "string" },
   port: { type: "string" },
   dir: { type: "string" },
+  "site-url": { type: "string" },
+  out: { type: "string" },
   schedule: { type: "boolean" },
   "dry-run": { type: "boolean" },
   json: { type: "boolean" },
@@ -160,6 +169,28 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
           ...warnings.map((w) => `Warning: ${w.file}: ${w.message} ${w.fix ?? ""}`.trim()),
         ].join("\n")
         report({ notes: built.notes.notes.map((n) => ({ id: n.id, type: n.type, start: n.start, end: n.end ?? null })), warnings, dryRun }, human)
+        return EXIT.ok
+      }
+      case "page build": {
+        const siteUrl = values["site-url"] ?? io.env.BELLTOWER_SITE_URL
+        if (!siteUrl || !/^https?:\/\//.test(siteUrl)) throw usage("page build needs --site-url.", "Pass the address the page is served from, such as --site-url https://status.example.com/.")
+        const store = platform(storeFromFlag(storeDir, io.env))
+        // A theme given as a path is read relative to the config file.
+        const loadTheme = async (ref: string) => JSON.parse(await readFile(isAbsolute(ref) ? ref : resolve(dirname(configPath), ref), "utf8")) as unknown
+        const built = await buildPage({ store, clock: { now: () => new Date() }, siteUrl, loadTheme })
+        if (!built.ok) throw new CliError(EXIT.configInvalid, built.problems.map((message) => ({ code: "page-invalid", path: "page", message })))
+        const paths = Object.keys(built.files).sort()
+        if (!dryRun) {
+          if (values.out) {
+            for (const path of paths) {
+              const file = join(values.out, path)
+              await mkdir(dirname(file), { recursive: true })
+              await writeFile(file, built.files[path] ?? "")
+            }
+          } else await writePage(store, built.files)
+        }
+        const where = values.out ?? "the store's public/ folder"
+        report({ files: paths, out: values.out ?? "public/", dryRun }, `${dryRun ? "Would write" : "Wrote"} ${paths.length} files to ${where}.`)
         return EXIT.ok
       }
       case "serve": {

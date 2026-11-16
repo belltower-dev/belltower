@@ -22,5 +22,8 @@
     "src",
     "schemas",
     "test/contracts"
-  ]
+  ],
+  "dependencies": {
+    "lucide": "1.66.0"
+  }
 }

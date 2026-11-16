@@ -32,13 +32,15 @@
             "description": "Oldest first; the last entry is today so far.",
             "items": {
               "type": "object",
-              "required": ["date", "uptime", "downMinutes", "maintenanceMinutes", "degradedMinutes", "responseMs", "incidents"],
+              "required": ["date", "uptime", "downMinutes", "maintenanceMinutes", "degradedMinutes", "partialMinutes", "majorMinutes", "responseMs", "incidents"],
               "properties": {
                 "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
                 "uptime": { "type": ["number", "null"], "description": "Percent up, rounded down to three places; null before monitoring began." },
                 "downMinutes": { "type": "integer", "minimum": 0 },
                 "maintenanceMinutes": { "type": "integer", "minimum": 0 },
                 "degradedMinutes": { "type": "integer", "minimum": 0, "description": "Minutes the component was degraded. They don't count against uptime." },
+                "partialMinutes": { "type": "integer", "minimum": 0, "description": "Minutes the component was in a partial outage: some of its public checks down." },
+                "majorMinutes": { "type": "integer", "minimum": 0, "description": "Minutes the component was in a major outage: all of its public checks down." },
                 "responseMs": { "type": ["integer", "null"], "minimum": 0, "description": "Median response time of its public HTTP checks, in milliseconds; null with none recorded." },
                 "incidents": { "type": "array", "items": { "type": "string" }, "description": "Ids of public incidents that overlap the day." }
               },
@@ -55,6 +57,8 @@
               "required": ["hour", "responseMs"],
               "properties": {
                 "hour": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:00Z$" },
+                "partialMinutes": { "type": "integer", "minimum": 0, "description": "Minutes the component was in a partial outage: some of its public checks down." },
+                "majorMinutes": { "type": "integer", "minimum": 0, "description": "Minutes the component was in a major outage: all of its public checks down." },
                 "responseMs": { "type": ["integer", "null"], "minimum": 0, "description": "Median response time in the hour, in milliseconds." }
               },
               "additionalProperties": false

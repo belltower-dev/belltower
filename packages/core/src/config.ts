@@ -117,6 +117,8 @@ export const STATE_MARKS: readonly StateMark[] = ["operational", "degraded", "pa
 export interface PageImage {
   src: string
   alt: string
+  /** The image spells out the name, so the header doesn't repeat it in text. */
+  wordmark?: boolean
 }
 
 /** The status page and its branding (docs/spec.md, "Branding"). */
@@ -129,7 +131,6 @@ export interface PageConfig {
   /** A shadcn/ui registry theme: a file path or URL resolved at build, or the theme itself. */
   theme?: string | Readonly<Record<string, unknown>>
   states?: Partial<Record<StateMark, { light: string; dark: string }>>
-  mode: "system" | "light" | "dark"
   footer?: { text?: string; links: readonly { text: string; url: string }[] }
   poweredBy: boolean
   reportProblem?: string
@@ -369,7 +370,7 @@ function readNotifier(f: Fields): NotifierConfig | null {
   return result
 }
 
-const DEFAULT_PAGE: PageConfig = { name: "Status", mode: "system", poweredBy: true }
+const DEFAULT_PAGE: PageConfig = { name: "Status", poweredBy: true }
 const COLOR = /^(#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?|(rgb|rgba|hsl|hsla|oklch|oklab|lab|lch)\([^)]*\))$/i
 
 function readPage(root: Fields): PageConfig {
@@ -382,8 +383,9 @@ function readPage(root: Fields): PageConfig {
     if (!g) return undefined
     const src = g.string("src", { required: true, hint: "the image's address, SVG preferred" })
     const alt = g.string("alt", { required: true, hint: `text for people who can't see the logo, usually the name, such as "${name ?? "Example"}"` })
+    const wordmark = key === "logo" ? g.boolean("wordmark", false) : false
     g.finish()
-    return src !== undefined && alt !== undefined ? { src, alt } : undefined
+    return src !== undefined && alt !== undefined ? { src, alt, ...(wordmark ? { wordmark } : {}) } : undefined
   }
   const logo = image("logo")
   const logoDark = image("logoDark")
@@ -413,7 +415,7 @@ function readPage(root: Fields): PageConfig {
     }
     sf.finish()
   }
-  const mode = f.oneOf("mode", ["system", "light", "dark"] as const) ?? "system"
+  f.replaced("mode", "was removed: the page always starts on the viewer's system setting, and viewers can choose light or dark.", "Remove page.mode.")
 
   let footer: PageConfig["footer"]
   const ff = f.object("footer")
@@ -437,7 +439,6 @@ function readPage(root: Fields): PageConfig {
   f.finish()
   return {
     name: name ?? DEFAULT_PAGE.name,
-    mode,
     poweredBy,
     ...(link !== undefined ? { link } : {}),
     ...(logo ? { logo } : {}),

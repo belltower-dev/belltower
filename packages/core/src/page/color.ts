@@ -58,9 +58,69 @@ function oklchToRgb(l: number, c: number, h: number): [number, number, number] {
   return [gamma(lin[0] ?? 0), gamma(lin[1] ?? 0), gamma(lin[2] ?? 0)]
 }
 
+/** Splits on commas that aren't inside brackets. */
+function topLevel(s: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "(") depth++
+    else if (s[i] === ")") depth--
+    else if (s[i] === "," && depth === 0) {
+      out.push(s.slice(start, i).trim())
+      start = i + 1
+    }
+  }
+  out.push(s.slice(start).trim())
+  return out
+}
+
+function toOklab(c: Rgb): [number, number, number] {
+  const { l, c: chroma, h } = toOklch(c)
+  const hr = (h * Math.PI) / 180
+  return [l, chroma * Math.cos(hr), chroma * Math.sin(hr)]
+}
+
+function fromOklab(l: number, a: number, b: number, alpha: number): Rgb {
+  const c = Math.sqrt(a * a + b * b)
+  const h = (Math.atan2(b, a) * 180) / Math.PI
+  const [r, g, bl] = oklchToRgb(l, c, h < 0 ? h + 360 : h)
+  return { r: clamp(r), g: clamp(g), b: clamp(bl), a: clamp(alpha) }
+}
+
+/** color-mix() with two colors, either of which may be transparent, mixed in oklab. */
+function colorMix(inner: string): Rgb | null {
+  const [space, first, second] = topLevel(inner)
+  if (!space?.startsWith("in ") || !first || !second) return null
+  const part = (p: string) => {
+    const m = /^(.*?)\s+([\d.]+)%$/.exec(p)
+    return m ? { color: m[1] ?? "", weight: Number(m[2]) / 100 } : { color: p, weight: null as number | null }
+  }
+  const x = part(first)
+  const y = part(second)
+  const wx = x.weight ?? (y.weight !== null ? 1 - y.weight : 0.5)
+  const wy = y.weight ?? 1 - wx
+  const total = wx + wy
+  if (!total) return null
+  const read = (c: string) => (c.trim() === "transparent" ? { r: 0, g: 0, b: 0, a: 0 } : parseColor(c))
+  const cx = read(x.color)
+  const cy = read(y.color)
+  if (!cx || !cy) return null
+  const px = wx / total
+  const py = wy / total
+  const alpha = cx.a * px + cy.a * py
+  if (!alpha) return { r: 0, g: 0, b: 0, a: 0 }
+  // Premultiplied mixing, as CSS does, so transparent only lowers the alpha.
+  const [lx, ax, bx] = toOklab(cx)
+  const [ly, ay, by] = toOklab(cy)
+  const mix = (u: number, v: number) => (u * cx.a * px + v * cy.a * py) / alpha
+  return fromOklab(mix(lx, ly), mix(ax, ay), mix(bx, by), alpha * Math.min(1, total))
+}
+
 /** Parses a CSS color, or returns null for a form it doesn't read. */
 export function parseColor(input: string): Rgb | null {
   const s = input.trim().toLowerCase()
+  if (s.startsWith("color-mix(") && s.endsWith(")")) return colorMix(s.slice(10, -1))
   const hex = /^#([0-9a-f]{3,8})$/.exec(s)
   if (hex) {
     let h = hex[1] ?? ""

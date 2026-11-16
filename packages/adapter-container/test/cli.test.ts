@@ -126,6 +126,25 @@ describe("belltower run", () => {
 })
 
 /** Two failing minutes from both regions, ending at the last complete minute. */
+describe("belltower page build", () => {
+  it("needs the site's address", async () => {
+    const { run, err } = await workspace()
+    expect(await run("page", "build")).toBe(2)
+    expect(err[0]).toContain("page build needs --site-url.")
+  })
+
+  it("builds the page after decide has run, into a folder or beside status.json", async () => {
+    const { run, out, dir } = await workspace()
+    expect(await run("page", "build", "--site-url", "https://status.example.com/")).toBe(3)
+    expect(await run("run", "decide")).toBe(0)
+    expect(await run("page", "build", "--site-url", "https://status.example.com/", "--out", join(dir, "site"))).toBe(0)
+    expect(out.at(-1)).toMatch(/^Wrote \d+ files to .*site\.$/)
+    expect(await readdir(join(dir, "site"))).toContain("index.html")
+    expect(await run("page", "build", "--site-url", "https://status.example.com/")).toBe(0)
+    expect(await readdir(join(dir, "data/public"))).toContain("index.html")
+  })
+})
+
 async function recordFailures(storeDir: string) {
   const store = localFolderStore(storeDir)
   const last = Math.floor(Date.now() / 60_000) * 60_000 - 60_000
