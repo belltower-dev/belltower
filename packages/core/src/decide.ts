@@ -1,6 +1,7 @@
 import { resultsKey, RESULTS_FORMAT, type CheckResult, type ResultsFile } from "./check.ts"
 import type { Check, Config, HeartbeatCheck, HttpCheck, PageConfig, Thresholds } from "./config.ts"
 import { rollUp } from "./availability.ts"
+import { buildPage, writePage, type BuildPageDeps } from "./page/build.ts"
 import { heartbeatKey, judgeHeartbeat, type HeartbeatRecord } from "./heartbeat.ts"
 import { emptyMetrics, METRICS_FORMAT, METRICS_KEY, recordMinute, type Metrics } from "./metrics.ts"
 import { maintenanceWindows, NOTES_FORMAT, NOTES_KEY, type PublicNotes } from "./notes.ts"
@@ -159,14 +160,21 @@ export interface DecideDeps {
   store: Store
   clock: Clock
   notifiers: readonly Notifier[]
+  /**
+   * Rebuild the status page beside status.json when something changed, and
+   * at least every 10 minutes. Without it the page is built separately.
+   */
+  page?: Omit<BuildPageDeps, "store" | "clock">
 }
 
 export interface DecideReport {
   states: Record<string, CheckState>
   opened: Incident[]
   resolved: Incident[]
-  /** Results files that couldn't be read, and alerts that couldn't be sent. */
+  /** Results files that couldn't be read, alerts that couldn't be sent, and a page that couldn't be built. */
   problems: string[]
+  /** Whether this run rebuilt the status page. */
+  pageBuilt?: boolean
 }
 
 /** Runs once a minute in one place per deployment. */
@@ -314,7 +322,8 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
   )
   await store.put(METRICS_KEY, JSON.stringify(metrics), { contentType: "application/json" })
 
-  if (changed || !state.rolledUpAt || now.getTime() - Date.parse(state.rolledUpAt) >= ROLL_UP_EVERY) {
+  const rollingUp = changed || !state.rolledUpAt || now.getTime() - Date.parse(state.rolledUpAt) >= ROLL_UP_EVERY
+  if (rollingUp) {
     await rollUp({ config, store, clock, since: new Date(state.since), maintenance: windows, metrics })
     await store.put(PAGE_KEY, JSON.stringify(publicPage(config, now)), { contentType: "application/json" })
     state.rolledUpAt = now.toISOString()
@@ -322,6 +331,18 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
 
   await store.put(DECIDE_STATE_KEY, JSON.stringify(state), { contentType: "application/json" })
   await store.put(STATUS_KEY, JSON.stringify(current), { contentType: "application/json" })
+  // The page is built from the files just written, so it matches status.json.
+  if (deps.page && rollingUp) {
+    try {
+      const built = await buildPage({ ...deps.page, store, clock })
+      if (built.ok) {
+        await writePage(store, built.files)
+        report.pageBuilt = true
+      } else problems.push(...built.problems.map((p) => `The status page wasn't rebuilt: ${p}`))
+    } catch (error) {
+      problems.push(`The status page wasn't rebuilt: ${(error as Error).message}`)
+    }
+  }
   return report
 }
 

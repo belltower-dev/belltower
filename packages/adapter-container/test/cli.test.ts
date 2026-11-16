@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
@@ -127,6 +127,18 @@ describe("belltower run", () => {
 
 /** Two failing minutes from both regions, ending at the last complete minute. */
 describe("belltower page build", () => {
+  it("keeps the page current from run decide and notes push when BELLTOWER_SITE_URL is set", async () => {
+    const { run, out, dir, io } = await workspace()
+    io.env.BELLTOWER_SITE_URL = "https://status.example.com/"
+    expect(await run("run", "decide")).toBe(0)
+    expect(await readdir(join(dir, "data/public"))).toContain("index.html")
+    await mkdir(join(dir, "notes"))
+    await writeFile(join(dir, "notes", "notice.md"), "---\ntype: notice\ntitle: Planned change\n---\nA note.\n")
+    expect(await run("notes", "push", "--dir", join(dir, "notes"))).toBe(0)
+    expect(out.at(-1)).toContain("Rebuilt the status page.")
+    expect(await readFile(join(dir, "data/public/index.html"), "utf8")).toContain("Planned change")
+  })
+
   it("needs the site's address", async () => {
     const { run, err } = await workspace()
     expect(await run("page", "build")).toBe(2)

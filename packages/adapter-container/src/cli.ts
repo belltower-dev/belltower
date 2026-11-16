@@ -68,7 +68,9 @@ Exit codes: 0 success, 2 usage error, 3 config invalid, 4 check failed,
 Secrets are read from environment variables named in the config. Email
 notifiers also need BELLTOWER_SMTP_URL and BELLTOWER_EMAIL_FROM. An s3://
 store reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN,
-AWS_REGION, and BELLTOWER_S3_ENDPOINT for storage other than AWS.`
+AWS_REGION, and BELLTOWER_S3_ENDPOINT for storage other than AWS. With
+BELLTOWER_SITE_URL set, run decide, serve --schedule and notes push keep
+the status page in the store's public/ folder current.`
 
 export interface Io {
   out(line: string): void
@@ -141,7 +143,7 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
         const store = withDryRun(platform(storeFromFlag(storeDir, io.env)), dryRun)
         const would: Alert[] = []
         const notifiers = dryRun ? await recording(setup, io, would) : await containerNotifiers(setup.config, envSecrets(io.env))
-        const result = await decide({ ...deps(setup, store, io), notifiers })
+        const result = await decide({ ...deps(setup, store, io), notifiers, ...(dryRun ? {} : pageDeps(io, configPath)) })
         report(dryRun ? { ...result, alerts: would } : result, describeDecision(result, dryRun ? would : null))
         return EXIT.ok
       }
@@ -163,10 +165,22 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
             built.errors.map((e) => ({ code: "note-invalid", path: `${e.file}: ${e.field}`, message: e.message, ...(e.fix ? { fix: e.fix } : {}) })),
           )
         }
-        if (!dryRun) await platform(storeFromFlag(storeDir, io.env)).put(NOTES_KEY, JSON.stringify(built.notes), { contentType: "application/json" })
+        let pageNote = ""
+        if (!dryRun) {
+          const store = platform(storeFromFlag(storeDir, io.env))
+          await store.put(NOTES_KEY, JSON.stringify(built.notes), { contentType: "application/json" })
+          // A new note shows on the page at once, not at the next roll-up.
+          const site = pageDeps(io, configPath).page
+          if (site && (await store.get("public/status.json")) !== null) {
+            const page = await buildPage({ ...site, store, clock: { now: () => new Date() } })
+            if (page.ok) await writePage(store, page.files)
+            pageNote = page.ok ? "Rebuilt the status page." : `The status page wasn't rebuilt: ${page.problems.join(" ")}`
+          }
+        }
         const human = [
           `${dryRun ? "Would publish" : "Published"} ${built.notes.notes.length} notes to ${NOTES_KEY}.`,
           ...warnings.map((w) => `Warning: ${w.file}: ${w.message} ${w.fix ?? ""}`.trim()),
+          ...(pageNote ? [pageNote] : []),
         ].join("\n")
         report({ notes: built.notes.notes.map((n) => ({ id: n.id, type: n.type, start: n.start, end: n.end ?? null })), warnings, dryRun }, human)
         return EXIT.ok
@@ -175,9 +189,7 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
         const siteUrl = values["site-url"] ?? io.env.BELLTOWER_SITE_URL
         if (!siteUrl || !/^https?:\/\//.test(siteUrl)) throw usage("page build needs --site-url.", "Pass the address the page is served from, such as --site-url https://status.example.com/.")
         const store = platform(storeFromFlag(storeDir, io.env))
-        // A theme given as a path is read relative to the config file.
-        const loadTheme = async (ref: string) => JSON.parse(await readFile(isAbsolute(ref) ? ref : resolve(dirname(configPath), ref), "utf8")) as unknown
-        const built = await buildPage({ store, clock: { now: () => new Date() }, siteUrl, loadTheme })
+        const built = await buildPage({ store, clock: { now: () => new Date() }, siteUrl, loadTheme: themeLoader(configPath) })
         if (!built.ok) throw new CliError(EXIT.configInvalid, built.problems.map((message) => ({ code: "page-invalid", path: "page", message })))
         const paths = Object.keys(built.files).sort()
         if (!dryRun) {
@@ -197,7 +209,7 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
         const setup = await loadSetup(configPath, regionsFlag)
         const store = platform(storeFromFlag(storeDir, io.env))
         const notifiers = await containerNotifiers(setup.config, envSecrets(io.env))
-        return await serve(setup, store, notifiers, Number(values.port ?? io.env.PORT ?? 8080), values.schedule === true, io, json, signal)
+        return await serve(setup, store, notifiers, Number(values.port ?? io.env.PORT ?? 8080), values.schedule === true, io, json, signal, configPath)
       }
       default:
         throw usage(`"${command}" isn't a command.`, "Run belltower --help for the commands.")
@@ -218,6 +230,18 @@ function usage(message: string, fix: string): CliError {
 
 function deps(setup: Setup, store: Store, io: Io) {
   return { config: setup.config, byRegion: setup.byRegion, store, secrets: envSecrets(io.env), clock: { now: () => new Date() } }
+}
+
+/** With BELLTOWER_SITE_URL set, decide() keeps the status page beside status.json current. */
+function pageDeps(io: Io, configPath: string) {
+  const siteUrl = io.env.BELLTOWER_SITE_URL
+  if (!siteUrl) return {}
+  return { page: { siteUrl, loadTheme: themeLoader(configPath) } }
+}
+
+/** A theme given as a path is read relative to the config file. */
+function themeLoader(configPath: string) {
+  return async (ref: string) => JSON.parse(await readFile(isAbsolute(ref) ? ref : resolve(dirname(configPath), ref), "utf8")) as unknown
 }
 
 /** Store failures are platform errors (exit 5), not bugs. */
@@ -252,7 +276,7 @@ async function recording(setup: Setup, io: Io, into: Alert[]): Promise<Notifier[
   return (await containerNotifiers(setup.config, envSecrets(io.env))).map((n) => ({ upTo: n.upTo, send: async (alert: Alert) => void into.push(alert) }))
 }
 
-async function serve(setup: Setup, store: Store, notifiers: Notifier[], port: number, schedule: boolean, io: Io, json: boolean, signal?: AbortSignal): Promise<number> {
+async function serve(setup: Setup, store: Store, notifiers: Notifier[], port: number, schedule: boolean, io: Io, json: boolean, signal: AbortSignal | undefined, configPath: string): Promise<number> {
   const log = (event: string, detail: Record<string, unknown>, human: string) =>
     io.out(json ? JSON.stringify({ format: CLI_FORMAT, command: "serve", event, at: new Date().toISOString(), ...detail }) : human)
   const secrets = envSecrets(io.env)
@@ -273,7 +297,7 @@ async function serve(setup: Setup, store: Store, notifiers: Notifier[], port: nu
           try {
             const files = await Promise.all(setup.regions.map((r) => runChecks(r.name, { ...deps(setup, store, io), http })))
             for (const file of files) log("checks", { region: file.region, results: file.results }, describeResults(file, false))
-            const result = await decide({ ...deps(setup, store, io), notifiers })
+            const result = await decide({ ...deps(setup, store, io), notifiers, ...pageDeps(io, configPath) })
             log("decide", { ...result }, describeDecision(result, null))
           } catch (error) {
             log("error", { message: (error as Error).message }, `The ${at.toISOString().slice(11, 16)} run failed: ${(error as Error).message}`)

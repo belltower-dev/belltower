@@ -299,6 +299,28 @@ describe("decide", () => {
     ])
   })
 
+  it("rebuilds the status page when something changes, and at least every 10 minutes", async () => {
+    const { deps, minute, store } = world()
+    Object.assign(deps, { page: { siteUrl: "https://status.example.com/" } })
+    expect((await minute("ppp")).pageBuilt).toBe(true)
+    expect(await store.get("public/index.html")).toContain("All services are online")
+    expect((await minute("ppp")).pageBuilt).toBeUndefined()
+    await minute("fff")
+    const opened = await minute("fff")
+    expect(opened.opened).toHaveLength(1)
+    expect(opened.pageBuilt).toBe(true)
+    expect(await store.get("public/index.html")).toContain("One service is down")
+  })
+
+  it("reports a page it couldn't build, and still decides", async () => {
+    const { deps, minute } = world()
+    Object.assign(deps, { page: { siteUrl: "https://status.example.com/", loadTheme: async () => ({ cssVars: { light: { foreground: "#eeeeee" }, dark: {} } }) } })
+    deps.config = { ...deps.config, page: { ...deps.config.page, theme: "theme.json" } }
+    const report = await minute("ppp")
+    expect(report.pageBuilt).toBeUndefined()
+    expect(report.problems[0]).toMatch(/^The status page wasn't rebuilt: light mode: Text on the page background/)
+  })
+
   it("publishes the page section and components' public fields, nothing else", async () => {
     const { minute, store } = world()
     await minute("ppp")

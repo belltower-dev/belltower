@@ -71,7 +71,7 @@ real AWS deployment of `examples/aws-sam`.
   incident and maintenance notes in Markdown, published by
   `belltower notes push`, with maintenance holding back incidents, alerts
   and downtime, and accessibility warnings on note content. Tested.
-- esbuild in `examples/aws-sam`; the Lambda bundle is 64 KB.
+- esbuild in `examples/aws-sam`; the Lambda bundle is 140 KB with the page builder (ES module builds first, so Lucide is tree-shaken).
 - Priorities P1 to P5 on checks and components, notifiers that send up to
   a priority, and incident keys that fold related checks into one
   incident. Tested.
@@ -87,15 +87,16 @@ real AWS deployment of `examples/aws-sam`.
   is written, one layout for phones and wide screens, Markdown copies,
   `llms.txt`, and `belltower page build`. Per-day minutes in partial and
   major outage color the 90-day bars. Tested.
+- `decide()` rebuilds the page beside `status.json` when something
+  changes and at least every 10 minutes, given `BELLTOWER_SITE_URL` (or
+  the `SiteUrl` parameter in `examples/aws-sam`); `notes push` rebuilds
+  it at once. Tested.
 
 **Next, in order:**
 
 1. Deploy `examples/aws-sam` to three regions and run phase 1's remaining
    done-when checks.
-2. Rebuild the page after `decide()` when something changed: the AWS
-   and container adapters run `buildPage()` and `writePage()` so the page
-   beside `status.json` stays current without a separate job.
-3. Fonts a theme names are fetched once at build and served from the
+2. Fonts a theme names are fetched once at build and served from the
    page's own host (the spec's "Branding"); until then the page lists them
    first in its font stacks.
 

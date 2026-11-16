@@ -19,6 +19,10 @@ Parameters:
     Type: String
     Default: ""
     Description: A sender address verified in SES in PrimaryRegion. Needed only if a notifier sends email.
+  SiteUrl:
+    Type: String
+    Default: ""
+    Description: Where the status page is served, such as https://status.example.com/. When set, decide() rebuilds the page in the bucket's public/ folder.
   SsmPath:
     Type: String
     Default: belltower
@@ -41,6 +45,7 @@ Globals:
         BELLTOWER_BUCKET_REGION: !Ref PrimaryRegion
         BELLTOWER_SSM_PREFIX: !Sub "/${SsmPath}/"
         BELLTOWER_EMAIL_FROM: !Ref EmailFrom
+        BELLTOWER_SITE_URL: !Ref SiteUrl
 
 Resources:
   DataBucket:
@@ -88,6 +93,8 @@ Resources:
         Platform: node
         Target: node22
         EntryPoints: [handlers.ts]
+        # ES module builds first, so packages like the icon set are tree-shaken.
+        MainFields: module,main
         OutExtension: [.js=.mjs]
         Banner:
           - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
@@ -125,6 +132,8 @@ Resources:
         Platform: node
         Target: node22
         EntryPoints: [handlers.ts]
+        # ES module builds first, so packages like the icon set are tree-shaken.
+        MainFields: module,main
         OutExtension: [.js=.mjs]
         Banner:
           - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
@@ -151,6 +160,8 @@ Resources:
         Platform: node
         Target: node22
         EntryPoints: [handlers.ts]
+        # ES module builds first, so packages like the icon set are tree-shaken.
+        MainFields: module,main
         OutExtension: [.js=.mjs]
         Banner:
           - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"

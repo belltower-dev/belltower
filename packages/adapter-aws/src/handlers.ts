@@ -146,8 +146,10 @@ export function createHandlers(rawConfig: unknown, options: HandlerOptions = {})
     /** Scheduled every minute in one region. */
     async decide(): Promise<{ opened: string[]; resolved: string[]; problems: string[] }> {
       const rt = setup()
-      const report = await decide({ ...rt, clock, notifiers: notifiers(rt) })
-      log({ event: "decide", states: report.states, opened: report.opened.map((i) => i.id), resolved: report.resolved.map((i) => i.id), problems: report.problems })
+      // With BELLTOWER_SITE_URL set, decide() keeps the status page in the bucket's public/ folder current.
+      const site = env.BELLTOWER_SITE_URL
+      const report = await decide({ ...rt, clock, notifiers: notifiers(rt), ...(site ? { page: { siteUrl: site, ...(options.fetch ? { fetch: options.fetch } : {}) } } : {}) })
+      log({ event: "decide", states: report.states, opened: report.opened.map((i) => i.id), resolved: report.resolved.map((i) => i.id), problems: report.problems, pageBuilt: report.pageBuilt ?? false })
       return { opened: report.opened.map((i) => i.id), resolved: report.resolved.map((i) => i.id), problems: report.problems }
     },
 

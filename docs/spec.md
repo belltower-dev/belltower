@@ -427,7 +427,12 @@ without header cells. `decide()` reads `public/notes.json` every minute.
 
 Built as static HTML by `buildPage()` from the `public/` files alone,
 never the config, and deployable to any static host (GitHub Pages, S3, R2,
-Cloud Storage, Netlify). Without JavaScript every page shows the state as
+Cloud Storage, Netlify). Given the address it's served from, `decide()` rebuilds it
+into `public/`, beside `status.json`, whenever an incident opens or
+resolves and at least every 10 minutes, and `belltower notes push` rebuilds
+it as soon as a note is published. A page that can't be built (a theme
+failing contrast) leaves the last good page in place, and the reason is in
+`decide()`'s report. `belltower page build` builds it on demand. Without JavaScript every page shows the state as
 of the last build; with it, the status page refreshes from
 `public/status.json`. WCAG 2.1 AA throughout ("Accessibility", below).
 

@@ -77,6 +77,13 @@ The primary stack's `HeartbeatBaseUrl` output is where jobs send their
 pings: `<HeartbeatBaseUrl>hb/<token>` on success, and `/fail` added on
 failure.
 
+To publish the status page, add `SiteUrl=https://status.example.com/` to
+the primary region's parameters. `decide()` then rebuilds the page into the
+bucket's `public/` folder, beside `status.json`, whenever an incident opens
+or resolves and at least every 10 minutes. Serve that folder from any
+static host. A theme in the config must be inline or a URL here, since the
+Lambda can't read files from your repository.
+
 ## Check it's working
 
 Each function logs one JSON line per run. Within two minutes of the last
