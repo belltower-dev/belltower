@@ -23,6 +23,14 @@ export function storeContract(name: string, make: () => Promise<Store>) {
       expect(await store.get("results/us/2026/11/15/1007.json")).toBe(body)
     })
 
+    it("stores bytes as they are, such as a font file", async () => {
+      const store = await make()
+      const bytes = new TextEncoder().encode("wOF2 font bytes ✓")
+      await store.put("public/fonts/example-1.woff2", bytes, { contentType: "font/woff2" })
+      expect(await store.get("public/fonts/example-1.woff2")).toBe("wOF2 font bytes ✓")
+      expect(await store.list("public/fonts/")).toEqual(["public/fonts/example-1.woff2"])
+    })
+
     it("replaces a key's contents on a second write", async () => {
       const store = await make()
       await store.put("heartbeats/nightly.json", "first")

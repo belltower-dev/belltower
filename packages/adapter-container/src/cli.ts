@@ -7,6 +7,8 @@ import { parseArgs } from "node:util"
 import {
   buildNotes,
   buildPage,
+  cachedFonts,
+  googleFonts,
   writePage,
   NOTES_KEY,
   decide,
@@ -143,7 +145,7 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
         const store = withDryRun(platform(storeFromFlag(storeDir, io.env)), dryRun)
         const would: Alert[] = []
         const notifiers = dryRun ? await recording(setup, io, would) : await containerNotifiers(setup.config, envSecrets(io.env))
-        const result = await decide({ ...deps(setup, store, io), notifiers, ...(dryRun ? {} : pageDeps(io, configPath)) })
+        const result = await decide({ ...deps(setup, store, io), notifiers, ...(dryRun ? {} : pageDeps(io, configPath, store)) })
         report(dryRun ? { ...result, alerts: would } : result, describeDecision(result, dryRun ? would : null))
         return EXIT.ok
       }
@@ -170,7 +172,7 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
           const store = platform(storeFromFlag(storeDir, io.env))
           await store.put(NOTES_KEY, JSON.stringify(built.notes), { contentType: "application/json" })
           // A new note shows on the page at once, not at the next roll-up.
-          const site = pageDeps(io, configPath).page
+          const site = pageDeps(io, configPath, store).page
           if (site && (await store.get("public/status.json")) !== null) {
             const page = await buildPage({ ...site, store, clock: { now: () => new Date() } })
             if (page.ok) await writePage(store, page.files)
@@ -189,7 +191,9 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
         const siteUrl = values["site-url"] ?? io.env.BELLTOWER_SITE_URL
         if (!siteUrl || !/^https?:\/\//.test(siteUrl)) throw usage("page build needs --site-url.", "Pass the address the page is served from, such as --site-url https://status.example.com/.")
         const store = platform(storeFromFlag(storeDir, io.env))
-        const built = await buildPage({ store, clock: { now: () => new Date() }, siteUrl, loadTheme: themeLoader(configPath) })
+        // Into the store, fonts already published are reused; into a separate folder, they're fetched.
+        const loadFont = values.out ? googleFonts() : cachedFonts(store, googleFonts())
+        const built = await buildPage({ store, clock: { now: () => new Date() }, siteUrl, loadTheme: themeLoader(configPath), loadFont })
         if (!built.ok) throw new CliError(EXIT.configInvalid, built.problems.map((message) => ({ code: "page-invalid", path: "page", message })))
         const paths = Object.keys(built.files).sort()
         if (!dryRun) {
@@ -202,7 +206,10 @@ export async function runCli(argv: readonly string[], io: Io, signal?: AbortSign
           } else await writePage(store, built.files)
         }
         const where = values.out ?? "the store's public/ folder"
-        report({ files: paths, out: values.out ?? "public/", dryRun }, `${dryRun ? "Would write" : "Wrote"} ${paths.length} files to ${where}.`)
+        report(
+          { files: paths, out: values.out ?? "public/", dryRun, warnings: built.warnings },
+          [`${dryRun ? "Would write" : "Wrote"} ${paths.length} files to ${where}.`, ...built.warnings.map((w) => `Warning: ${w}`)].join("\n"),
+        )
         return EXIT.ok
       }
       case "serve": {
@@ -233,10 +240,10 @@ function deps(setup: Setup, store: Store, io: Io) {
 }
 
 /** With BELLTOWER_SITE_URL set, decide() keeps the status page beside status.json current. */
-function pageDeps(io: Io, configPath: string) {
+function pageDeps(io: Io, configPath: string, store: Store) {
   const siteUrl = io.env.BELLTOWER_SITE_URL
   if (!siteUrl) return {}
-  return { page: { siteUrl, loadTheme: themeLoader(configPath) } }
+  return { page: { siteUrl, loadTheme: themeLoader(configPath), loadFont: cachedFonts(store, googleFonts()) } }
 }
 
 /** A theme given as a path is read relative to the config file. */
@@ -266,7 +273,7 @@ function withDryRun(store: Store, dryRun: boolean): Store {
   const written = new Map<string, string>()
   return {
     get: async (key) => written.get(key) ?? store.get(key),
-    put: async (key, body) => void written.set(key, body),
+    put: async (key, body) => void written.set(key, typeof body === "string" ? body : new TextDecoder().decode(body)),
     list: async (prefix) => [...new Set([...(await store.list(prefix)), ...[...written.keys()].filter((k) => k.startsWith(prefix))])].sort(),
   }
 }
@@ -297,7 +304,7 @@ async function serve(setup: Setup, store: Store, notifiers: Notifier[], port: nu
           try {
             const files = await Promise.all(setup.regions.map((r) => runChecks(r.name, { ...deps(setup, store, io), http })))
             for (const file of files) log("checks", { region: file.region, results: file.results }, describeResults(file, false))
-            const result = await decide({ ...deps(setup, store, io), notifiers, ...pageDeps(io, configPath) })
+            const result = await decide({ ...deps(setup, store, io), notifiers, ...pageDeps(io, configPath, store) })
             log("decide", { ...result }, describeDecision(result, null))
           } catch (error) {
             log("error", { message: (error as Error).message }, `The ${at.toISOString().slice(11, 16)} run failed: ${(error as Error).message}`)

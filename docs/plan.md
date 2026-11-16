@@ -91,14 +91,14 @@ real AWS deployment of `examples/aws-sam`.
   changes and at least every 10 minutes, given `BELLTOWER_SITE_URL` (or
   the `SiteUrl` parameter in `examples/aws-sam`); `notes push` rebuilds
   it at once. Tested.
+- Fonts a theme names are fetched once from Google Fonts at build and
+  served from the page's own `fonts/` folder; the Store port takes bytes.
+  Tested, and checked against Google Fonts with real families.
 
 **Next, in order:**
 
 1. Deploy `examples/aws-sam` to three regions and run phase 1's remaining
    done-when checks.
-2. Fonts a theme names are fetched once at build and served from the
-   page's own host (the spec's "Branding"); until then the page lists them
-   first in its font stacks.
 
 Phase 1's done-when checks are below.
 

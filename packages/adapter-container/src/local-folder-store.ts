@@ -42,7 +42,7 @@ export function localFolderStore(root: string): Store {
       await mkdir(dirname(path), { recursive: true })
       const temp = join(dirname(path), `${TEMP}${randomUUID()}`)
       try {
-        await writeFile(temp, body, "utf8")
+        await writeFile(temp, body, typeof body === "string" ? "utf8" : undefined)
         await rename(temp, path)
       } catch (error) {
         await rm(temp, { force: true })

@@ -42,7 +42,7 @@ export function s3Store(options: S3StoreOptions): Store {
     return url
   }
 
-  async function send(method: string, url: URL, body?: string, extra: Record<string, string> = {}): Promise<Response> {
+  async function send(method: string, url: URL, body?: string | Uint8Array, extra: Record<string, string> = {}): Promise<Response> {
     const payload = body ?? ""
     const headers = await signRequest({
       method,
@@ -54,7 +54,7 @@ export function s3Store(options: S3StoreOptions): Store {
       credentials: options.credentials,
       date: now(),
     })
-    return doFetch(url, { method, headers, ...(body !== undefined ? { body } : {}) })
+    return doFetch(url, { method, headers, ...(body !== undefined ? { body: body as BodyInit } : {}) })
   }
 
   async function fail(action: string, key: string, response: Response): Promise<never> {

@@ -28,7 +28,7 @@ function memoryStore() {
   const store: Store & { files: Map<string, string> } = {
     files,
     get: async (key) => files.get(key) ?? null,
-    put: async (key, body) => void files.set(key, body),
+    put: async (key, body) => void files.set(key, typeof body === "string" ? body : new TextDecoder().decode(body)),
     list: async (prefix) => [...files.keys()].filter((k) => k.startsWith(prefix)).sort(),
   }
   return store

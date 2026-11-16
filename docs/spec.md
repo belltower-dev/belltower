@@ -589,9 +589,16 @@ From the config's `page` section:
 
 - **How the theme maps:** the page's surfaces come from `background`,
   `muted` and `border`; text from `foreground`; buttons and links from
-  `primary`; outages from `destructive`; corners from `radius`; focus from
-  `ring`. Fonts named by the theme are fetched once at build and served
-  from the page's own host, so visitors make no third-party requests.
+  `primary`; outages from `destructive`; corners from `radius`. The focus
+  outline and control borders use the text colors, so they pass whenever
+  the text does. Fonts named by the theme (`font-sans`, `font-mono`) are fetched
+  once at build from Google Fonts, where shadcn/ui and tweakcn themes take
+  them from, and served from the page's own `fonts/` folder, so visitors
+  make no third-party requests. Only the font's name is sent. Rebuilds
+  reuse fonts already published. A font that isn't there, or can't be
+  fetched, is a warning, and the page falls back to the system font
+  stack. System fonts (`system-ui`, `Helvetica` and the like) are left as
+  they are.
 - **Colors the build reads:** hex, `rgb()`, `hsl()`, `oklch()`, and
   the bare HSL triplets of older shadcn/ui themes (`222.2 84% 4.9%`).
   Variables the theme leaves out come from the neutral theme.

@@ -29,7 +29,7 @@ function fakeS3(opts: { pathStyle: boolean } = { pathStyle: true }) {
     buckets.set(bucket, objects)
 
     if (init?.method === "PUT") {
-      objects.set(key, String(init.body ?? ""))
+      objects.set(key, typeof init.body === "string" || init.body == null ? String(init.body ?? "") : new TextDecoder().decode(init.body as Uint8Array))
       return new Response(null, { status: 200 })
     }
     if (url.searchParams.get("list-type") === "2") {

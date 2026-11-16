@@ -8,7 +8,8 @@
 export interface Store {
   /** The object's text, or null when there is none. */
   get(key: string): Promise<string | null>
-  put(key: string, body: string, options?: { contentType?: string }): Promise<void>
+  /** Text is stored as UTF-8. Bytes (such as the page's font files) are stored as they are. */
+  put(key: string, body: string | Uint8Array, options?: { contentType?: string }): Promise<void>
   /** Keys under a prefix, in lexical order. */
   list(prefix: string): Promise<string[]>
 }

@@ -5,10 +5,12 @@ import type { Store } from "./ports.ts"
  * survives a restart and nothing is shared between processes.
  */
 export function memoryStore(): Store {
-  const files = new Map<string, string>()
+  const files = new Map<string, string | Uint8Array>()
+  const decoder = new TextDecoder()
   return {
     async get(key) {
-      return files.get(key) ?? null
+      const body = files.get(key)
+      return body === undefined ? null : typeof body === "string" ? body : decoder.decode(body)
     },
     async put(key, body) {
       files.set(key, body)

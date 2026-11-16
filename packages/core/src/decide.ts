@@ -338,6 +338,7 @@ export async function decide(deps: DecideDeps): Promise<DecideReport> {
       if (built.ok) {
         await writePage(store, built.files)
         report.pageBuilt = true
+        problems.push(...built.warnings.map((w) => `Status page: ${w}`))
       } else problems.push(...built.problems.map((p) => `The status page wasn't rebuilt: ${p}`))
     } catch (error) {
       problems.push(`The status page wasn't rebuilt: ${(error as Error).message}`)

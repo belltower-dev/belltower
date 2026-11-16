@@ -6,6 +6,7 @@ import type { Clock, Store } from "../ports.ts"
 import { componentsMarkdown, groupMarkdown, incidentMarkdown, incidentsMarkdown, llmsTxt, maintenanceMarkdown, maintenanceNoteMarkdown, statusMarkdown } from "./markdown-pages.ts"
 import { buildModel } from "./model.ts"
 import { componentsPage, groupPage, incidentPage, incidentsPage, maintenanceNotePage, maintenancePage, statusPage } from "./pages.ts"
+import { fontCssPath, firstFamily, type FontLoader } from "./fonts.ts"
 import { PAGE_CSS, themeCss } from "./styles.ts"
 import { checkContrast, describeProblem, NEUTRAL_THEME, readRegistryTheme, resolveTheme, type RegistryTheme } from "./theme.ts"
 
@@ -22,11 +23,14 @@ export interface BuildPageDeps {
   siteUrl: string
   /** Reads a theme given as a file path. Adapters supply it; a URL is fetched without it. */
   loadTheme?: (ref: string) => Promise<unknown>
+  /** Fetches the fonts the theme names, to serve from the page's own host. Without it the page lists them in its font stacks only. */
+  loadFont?: FontLoader
   fetch?: typeof fetch
 }
 
 export type BuildPageResult =
-  | { ok: true; files: Record<string, string> }
+  /** `warnings` are things the page does without, such as a font that couldn't be fetched. */
+  | { ok: true; files: Record<string, string | Uint8Array>; warnings: string[] }
   | { ok: false; problems: string[] }
 
 async function readPublic<T extends { format?: string }>(store: Store, key: string, format: string): Promise<T | null | string> {
@@ -86,8 +90,32 @@ export async function buildPage(deps: BuildPageDeps): Promise<BuildPageResult> {
   const input = { status, notes: typeof notes === "string" ? null : notes, page, siteUrl, now }
   const feeds = buildFeeds(input)
 
-  const files: Record<string, string> = {
-    "style.css": `${themeCss(resolved)}\n${PAGE_CSS}`,
+  // Fonts the theme names, served from the page's own host.
+  const warnings: string[] = []
+  const fontFiles: Record<string, string | Uint8Array> = {}
+  const faces: string[] = []
+  if (deps.loadFont) {
+    for (const [role, stack] of [["font-sans", resolved.fonts.sans], ["font-mono", resolved.fonts.mono]] as const) {
+      const family = firstFamily(stack)
+      if (!family) continue
+      try {
+        const font = await deps.loadFont(family)
+        if (!font) {
+          warnings.push(`The theme's ${role} "${family}" isn't on Google Fonts, so the page uses it only where it's installed.`)
+          continue
+        }
+        faces.push(font.css)
+        fontFiles[fontCssPath(family)] = font.css
+        Object.assign(fontFiles, font.files)
+      } catch (error) {
+        warnings.push(`The theme's ${role} "${family}" couldn't be fetched (${(error as Error).message}); the page uses it only where it's installed.`)
+      }
+    }
+  }
+
+  const files: Record<string, string | Uint8Array> = {
+    ...fontFiles,
+    "style.css": `${faces.length ? `${faces.join("\n")}\n` : ""}${themeCss(resolved)}\n${PAGE_CSS}`,
     "index.html": statusPage(model).html,
     "index.md": statusMarkdown(model),
     "components.html": componentsPage(model),
@@ -114,7 +142,7 @@ export async function buildPage(deps: BuildPageDeps): Promise<BuildPageResult> {
     files[pagePaths.incident(m.note.id)] = maintenanceNotePage(model, m)
     files[pagePaths.incident(m.note.id).replace(/\.html$/, ".md")] = maintenanceNoteMarkdown(m)
   }
-  return { ok: true, files }
+  return { ok: true, files, warnings }
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -125,6 +153,7 @@ const CONTENT_TYPES: Record<string, string> = {
   atom: "application/atom+xml",
   rss: "application/rss+xml",
   txt: "text/plain; charset=utf-8",
+  woff2: "font/woff2",
 }
 
 export function contentType(path: string): string {
@@ -132,6 +161,6 @@ export function contentType(path: string): string {
 }
 
 /** Writes the built page next to status.json, under public/, so one static host serves both. */
-export async function writePage(store: Store, files: Readonly<Record<string, string>>): Promise<void> {
+export async function writePage(store: Store, files: Readonly<Record<string, string | Uint8Array>>): Promise<void> {
   for (const [path, body] of Object.entries(files)) await store.put(`public/${path}`, body, { contentType: contentType(path) })
 }
