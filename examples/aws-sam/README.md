@@ -11,7 +11,7 @@ What it creates:
 | Every region | `ChecksFunction`, scheduled every minute | Runs the checks, writes `results/{region}/...` |
 | Primary region | `DataBucket` | Results (kept 90 days), incidents, heartbeats, `public/status.json`. Kept if the stack is deleted |
 | Primary region | `DecideFunction`, scheduled every minute | Confirms outages across regions, opens and resolves incidents, sends alerts through SES, SNS and webhooks |
-| Primary region | `HttpFunction` with a function URL | Records heartbeat pings |
+| Primary region | `HttpFunction` with a function URL | Records heartbeat pings, at most 5 at once (`HeartbeatConcurrency`) |
 
 Nothing runs between the minute ticks. Run the monitor in a different AWS
 account, or at least different regions, from the service it watches.
@@ -51,6 +51,13 @@ and esbuild, which SAM uses to bundle the TypeScript.
 
 4. **For SMS alerts,** set up SNS text messaging in the primary region.
    Many countries need an origination number or sender ID first.
+
+5. **Check your Lambda concurrency quota** in the primary region, under
+   Service Quotas, AWS Lambda, "Concurrent executions". The heartbeat
+   function reserves 5 (the `HeartbeatConcurrency` parameter), and AWS
+   only allows a reservation that leaves at least 100 unreserved. New
+   accounts sometimes start at 10; request 1,000, which is free. Until
+   it's raised, deploy with `HeartbeatConcurrency=0`.
 
 ## Deploy
 

@@ -35,9 +35,15 @@ Parameters:
     Type: String
     Default: belltower
     Description: Secrets the config names are read from SSM Parameter Store under /<SsmPath>/.
+  HeartbeatConcurrency:
+    Type: Number
+    Default: 5
+    MinValue: 0
+    Description: The most heartbeat requests handled at once. Caps what a flood of requests to the public function URL can cost, and keeps it from using up Lambda capacity and SSM reads that checks and decide() need. 0 leaves it uncapped, for accounts whose Lambda concurrency quota is too low to reserve any.
 
 Conditions:
   IsPrimary: !Equals [!Ref "AWS::Region", !Ref PrimaryRegion]
+  CapsHeartbeats: !Not [!Equals [!Ref HeartbeatConcurrency, 0]]
   HostsPage: !And
     - !Condition IsPrimary
     - !Not [!Equals [!Ref PageCertificateArn, ""]]
@@ -156,6 +162,9 @@ Resources:
       Description: Records heartbeat pings at /hb/{token} and /hb/{token}/fail.
       Handler: handlers.http
       Timeout: 10
+      # The URL is public, so a flood could otherwise start many instances, each reading
+      # every heartbeat's secret from SSM and starving decide() of SSM reads and Lambda capacity.
+      ReservedConcurrentExecutions: !If [CapsHeartbeats, !Ref HeartbeatConcurrency, !Ref "AWS::NoValue"]
       FunctionUrlConfig:
         # Heartbeat URLs carry their own secret token.
         AuthType: NONE
