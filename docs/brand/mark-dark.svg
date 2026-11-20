@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Belltower">
+  <path fill="#f5f5f5" d="M6.25 34.5a18.5 18.5 0 1 0 37 0a18.5 18.5 0 1 0 -37 0zM13.25 34.5a11.5 11.5 0 1 1 23 0a11.5 11.5 0 1 1 -23 0z"/>
+  <path fill="#f5f5f5" d="M21.25 7.5h7v54h-7z"/>
+  <path fill="#df2321" d="M44.75 2.5h6v7h7v6h-7v7h-6v-7h-7v-6h7z"/>
+</svg>
