@@ -5,11 +5,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/acrstatus/belltower.git"
+    "url": "git+https://github.com/belltower-dev/belltower.git"
   },
-  "homepage": "https://github.com/acrstatus/belltower",
+  "homepage": "https://github.com/belltower-dev/belltower",
   "bugs": {
-    "url": "https://github.com/acrstatus/belltower/issues"
+    "url": "https://github.com/belltower-dev/belltower/issues"
   },
   "type": "module",
   "packageManager": "pnpm@12.10.1",

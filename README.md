@@ -17,7 +17,7 @@ measured against. Everything it shows people meets WCAG 2.1 AA.
 
 **Status:** design and early code. Nothing to deploy yet.
 
-Source: <https://github.com/acrstatus/belltower>
+Source: <https://github.com/belltower-dev/belltower>
 
 ## Design
 
