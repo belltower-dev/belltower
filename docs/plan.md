@@ -227,7 +227,11 @@ examples/
 
 - A scripted browser check (sign-in and similar flows), which needs a
   headless browser on the platform.
-- Status page subscriptions by email.
+- Status page subscriptions by email, then SMS and webhook: double
+  opt-in, unsubscribe links, subscriber files kept out of `public/` and
+  carried by `move` and `export`.
+- A phone call notifier on the SMS provider.
 - More notifiers (Slack and Teams beyond webhooks, paging services) as
   people ask.
-- Ping, TCP and DNS check types.
+- Ping, TCP, UDP, DNS, SMTP, POP and IMAP check types, each behind a port
+  and a capability so `assignChecks` places it where it can run.

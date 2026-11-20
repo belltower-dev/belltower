@@ -30,17 +30,38 @@ monitor settings, heartbeats, incidents, status pages and reporting.
 6. Run unchanged on any supported platform. Moving platforms means changing
    the adapter and the deploy template, not the checks.
 
-## What it won't do
+## Out of scope
 
-- On-call rotations and calendars, teams, routing rules. Alerts escalate
-  down one short list of contacts at most.
-- Phone call alerts. Email, SMS and webhooks.
-- Logs, traces, metrics, error tracking, session replay. Use an APM tool.
-- AI incident investigation, a post-mortem tool. Post-mortems are Markdown in
-  the deployment's repository.
-- Ping, TCP, UDP, SMTP, POP, IMAP and DNS monitor types in the first version.
-- Status page subscriptions by SMS, unless deployments ask. Feeds come
-  first, then email and webhooks, then Slack.
+These are different products. Each would break one of the goals above.
+
+- Logs, traces, metrics, error tracking and session replay. They need
+  ingestion that runs all the time, and Belltower runs nothing between
+  checks. Use an APM tool.
+- On-call rotations, calendars and teams. Someone has to sign in to change
+  who is on call, so it needs an app with accounts. Alerts escalate down
+  one short list of contacts.
+- A built-in AI investigator or post-mortem tool. Incidents are stored as
+  files an agent can read, so the agent you already use does the
+  investigating. Post-mortems are Markdown in the deployment's repository.
+
+## Not yet
+
+These fit Belltower and are in the plan's "Later" list. Each says what it
+waits on.
+
+- **Ping, TCP, UDP, DNS, SMTP, POP and IMAP checks.** Web-standard `fetch`
+  can't open these connections, and runtimes differ: Workers has TCP but no
+  UDP or ICMP, Lambda has TCP and UDP but no ICMP, a container host has all
+  of them. Each type will sit behind a port and a declared capability, so
+  `assignChecks` sends it only to regions that can run it, the same way as
+  certificate checks.
+- **Phone call alerts.** A `call` notifier on the provider that sends SMS.
+  It waits on the SMS notifier being in use on real deployments.
+- **Status page subscriptions by email, SMS and webhook.** Feeds come first.
+  Subscriptions mean storing other people's addresses, so they need double
+  opt-in, an unsubscribe link in every message, and subscriber files that
+  never reach `public/` and that `belltower move` and `belltower export`
+  carry.
 
 ## Architecture
 
