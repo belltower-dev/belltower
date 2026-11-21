@@ -54,7 +54,9 @@ Globals:
     Architectures: [arm64]
     MemorySize: 256
     Timeout: 55
-    CodeUri: .
+    # `pnpm bundle` writes handlers.ts and the config to dist/handlers.mjs. SAM uploads
+    # dist/ as is: its esbuild builder runs npm install, which can't resolve workspace: packages.
+    CodeUri: dist/
     Environment:
       Variables:
         BELLTOWER_REGIONS: !Join [",", !Ref Regions]
@@ -103,18 +105,6 @@ Resources:
             # A late retry would land in the wrong minute; the next minute runs anyway.
             RetryPolicy:
               MaximumRetryAttempts: 0
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Format: esm
-        Platform: node
-        Target: node22
-        EntryPoints: [handlers.ts]
-        # ES module builds first, so packages like the icon set are tree-shaken.
-        MainFields: module,main
-        OutExtension: [.js=.mjs]
-        Banner:
-          - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
 
   DecideFunction:
     Type: AWS::Serverless::Function
@@ -142,18 +132,6 @@ Resources:
             ScheduleExpression: cron(* * * * ? *)
             RetryPolicy:
               MaximumRetryAttempts: 0
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Format: esm
-        Platform: node
-        Target: node22
-        EntryPoints: [handlers.ts]
-        # ES module builds first, so packages like the icon set are tree-shaken.
-        MainFields: module,main
-        OutExtension: [.js=.mjs]
-        Banner:
-          - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
 
   HttpFunction:
     Type: AWS::Serverless::Function
@@ -173,18 +151,6 @@ Resources:
             BucketName: !Ref BucketName
         - SSMParameterReadPolicy:
             ParameterName: !Sub "${SsmPath}/*"
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Format: esm
-        Platform: node
-        Target: node22
-        EntryPoints: [handlers.ts]
-        # ES module builds first, so packages like the icon set are tree-shaken.
-        MainFields: module,main
-        OutExtension: [.js=.mjs]
-        Banner:
-          - "js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
 
   # Optional: CloudFront serves the bucket's public/ folder (the page, status.json and the feeds) over HTTPS.
   PageOriginAccess:

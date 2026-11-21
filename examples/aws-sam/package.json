@@ -4,6 +4,9 @@
   "description": "Belltower on AWS Lambda in several regions, deployed with AWS SAM",
   "license": "Apache-2.0",
   "type": "module",
+  "scripts": {
+    "bundle": "esbuild handlers.ts --bundle --format=esm --platform=node --target=node22 --main-fields=module,main --outfile=dist/handlers.mjs \"--banner:js=import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\""
+  },
   "dependencies": {
     "@belltower/adapter-aws": "workspace:*",
     "@belltower/adapter-container": "workspace:*"

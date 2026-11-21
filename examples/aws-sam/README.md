@@ -19,7 +19,8 @@ account, or at least different regions, from the service it watches.
 ## Before you deploy
 
 You need an AWS account, the [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html),
-and esbuild, which SAM uses to bundle the TypeScript.
+and pnpm. `pnpm install` at the repository root installs esbuild, which
+bundles the TypeScript.
 
 1. **Edit `belltower.config.json`.** Replace the example checks with your
    own. Check it with the container adapter's CLI:
@@ -64,14 +65,20 @@ and esbuild, which SAM uses to bundle the TypeScript.
 Deploy the primary region first, since it creates the bucket:
 
 ```sh
-sam build
+pnpm bundle
 sam deploy --region us-east-1 --stack-name belltower --resolve-s3 \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides Regions=us-east-1,eu-west-1 PrimaryRegion=us-east-1 \
     BucketName=belltower-monitor-data-example EmailFrom=alerts@example.com
 ```
 
-Then the same command for each other region, changing only `--region`:
+`pnpm bundle` writes `handlers.ts` and `belltower.config.json` to
+`dist/handlers.mjs`, and `sam deploy` uploads `dist/` as it is. Bundle again
+after every config change, since the config is part of the code. Don't use
+`sam build`: its esbuild builder runs `npm install`, which can't resolve
+the `workspace:` dependencies.
+
+Then the same `sam deploy` for each other region, changing only `--region`:
 
 ```sh
 sam deploy --region eu-west-1 --stack-name belltower --resolve-s3 \
