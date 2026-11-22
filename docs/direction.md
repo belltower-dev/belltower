@@ -242,7 +242,7 @@ them, and meets WCAG 2.1 AA while doing it.
   one-line description and a link to the thing itself ("Web app" to the app).
 - Five component states, always in words: Operational, Degraded
   performance, Partial outage (some regions or some of the feature), Major
-  outage, Maintenance. A legend lists them.
+  outage, Maintenance.
 - 90-day bars per component with uptime percentages, and a response time
   chart per component, each with a table alternative.
 - Separate pages for Status, Maintenance and History, so the main page stays

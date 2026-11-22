@@ -472,8 +472,8 @@ readable line length.
 | Page | Shows |
 | --- | --- |
 | Status | The overall state as a short headline with its state icon (see "The headline") and "Last updated"; when anything is affected, a plain list under it of each affected service and its state in words ("REST API: Partial outage"), each linking to its group; current notices, open incidents and maintenance in progress; then a card per component group with its state in words, with an "All components" link beside the heading, or the components themselves when there's only one group; one line of recent incidents with a link to Previous incidents; and last, a quiet "Checked from" line |
-| One per group | The group's state, then its components as a bordered list, each with its state in words. A component row expands to its description, 90-day bars, response time, and this month's availability against the target with the downtime budget. Then a legend, and the group's incidents in the last 15 days as one list, newest first: each with its date, title, stage, components, duration and impact. Days without one aren't listed |
-| All components | Every component of every group on one page, under its group's name, each a row that opens like on a group page; the legend |
+| One per group | The group's state, then its components as a bordered list, each with its state in words. A component row expands to its description, 90-day bars, response time, and this month's availability against the target with the downtime budget. Then the group's incidents in the last 15 days as one list, newest first: each with its date, title, stage, components, duration and impact. Days without one aren't listed |
+| All components | Every component of every group on one page, under its group's name, each a row that opens like on a group page |
 | Maintenance | Maintenance in progress and upcoming |
 | Previous incidents | The last 90 days, newest first, as one card per month. Inside it, each day with incidents has a shaded row with its date and count; each incident shows its stage, its components, impact and duration, and its latest update as a card on a timeline, with "N previous updates" folded beneath. A month with nothing says so. Then an event log: every update of every incident and maintenance in one list, newest first, with a link at the top of the page that goes straight to it |
 | One per incident | A permanent address, with a link back to Previous incidents, and one card: the stage and impact, the title, the start, the duration and the summary; then the affected services with their states; then every update, newest first, as a card on a timeline marked by its stage. Maintenance has the same page, linked back to Maintenance |
@@ -497,8 +497,7 @@ A group's page follows the same rule for its own components.
 
 ### States
 
-Each component has one of five states, always in words, never color alone,
-with a legend that lists them:
+Each component has one of five states, always in words, never color alone:
 
 | State | When |
 | --- | --- |
@@ -526,8 +525,8 @@ Degraded performance, Maintenance, Operational.
   Major outage, Partial outage, Degraded performance, then Maintenance, as
   for the overall state. `decide()` counts the minutes each component
   spent in each state, so a day's bar matches the states shown for it.
-  Days before monitoring began show as "No data", and the legend lists all
-  six. Each bar has a text label (date, state, uptime, time in each state,
+  Days before monitoring began show as "No data". There is no legend:
+  each bar has a text label (date, state, uptime, time in each state,
   incidents), such as "14 November: Partial outage, 99.9% up, 40 minutes
   partial outage, 1 incident", and the same figures are in a table. Under
   the bars, this month's availability next to the target.

@@ -195,9 +195,6 @@ details[open] > summary .chev { transform: rotate(180deg); }
 @media (max-width: 639px) { .bar.early { display: none; } .wide-only { display: none; } }
 @media (min-width: 640px) { .narrow-only { display: none; } }
 .bar-scale { display: flex; justify-content: space-between; margin-top: .375rem; font-size: .75rem; color: var(--muted-foreground); }
-.legend { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin-top: 1.25rem; font-size: .875rem; color: var(--muted-foreground); }
-.legend li { display: inline-flex; align-items: center; gap: .375rem; }
-.legend .bar { display: inline-block; flex: none; width: .375rem; height: .875rem; }
 
 .table-wrap { max-width: 100%; overflow-x: auto; }
 .table-scroll { max-height: 18rem; overflow-y: auto; }

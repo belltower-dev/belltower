@@ -126,12 +126,6 @@ function duration(i: IncidentView, now: Date): string {
   return minutes((Date.parse(i.end) - Date.parse(i.start)) / MINUTE)
 }
 
-function legend(): string {
-  return `<h3 class="sr-only">Legend</h3><ul class="legend">${DAY_ORDER
-    .map((s) => `<li><span class="bar bar-${s}" aria-hidden="true"></span>${icon(s, `icon-sm s-${s}`)}${DAY_WORDS[s]}</li>`)
-    .join("")}</ul>`
-}
-
 // ---------- Layout ----------
 
 interface Layout {
@@ -471,7 +465,6 @@ function componentRows(model: PageModel, g: GroupView, root: string, headingId: 
   return `<section aria-labelledby="${headingId}">
   <div class="section-head"><h2 id="${headingId}">Components</h2><p class="small muted">Open a component for its history</p></div>
   <div class="rows">${g.components.map((c) => componentRow(model, c, root)).join("")}</div>
-  ${legend()}
 </section>`
 }
 
@@ -619,8 +612,7 @@ ${model.groups
   <div class="rows">${g.components.map((c) => componentRow(model, c, root)).join("")}</div>
 </section>`,
   )
-  .join("")}
-<section aria-labelledby="legend-h"><h2 id="legend-h" class="sr-only">Legend</h2>${legend()}</section>`
+  .join("")}`
   return layout(model, { title: `All components: ${model.page.name} status`, description: `Every component of ${model.page.name}, with its state and history.`, root, path: "components.html", nav: null, body })
 }
 
